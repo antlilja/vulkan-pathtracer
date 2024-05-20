@@ -1,0 +1,68 @@
+#version 460
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_debug_printf : enable
+
+#include "rand.glsl"
+
+struct Payload {
+	vec3 color;
+	vec3 atten;
+	uint rng_state;
+	uint depth;
+};
+
+layout(constant_id = 0) const uint NUM_SAMPLES = 1;
+layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
+layout(binding = 1, set = 0, rgba32f) uniform image2D image;
+layout(push_constant) uniform PushConstants {
+	vec4 position;
+	vec4 horizontal;
+	vec4 vertical;
+	vec4 forward;
+	uint frame_count;
+} pcs;
+
+layout(location = 0) rayPayloadEXT Payload payload;
+
+void main() 
+{
+	const vec2 pixel = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+	const vec2 uv = pixel/vec2(gl_LaunchSizeEXT.xy);
+	const vec2 d = uv * 2.0f - 1.0f;
+	vec3 origin = pcs.position.xyz;
+	vec3 direction = normalize(pcs.forward.xyz + pcs.horizontal.xyz * d.x - pcs.vertical.xyz * d.y);
+	
+	float tmin = 0.001f;
+	float tmax = 10000.0f;
+
+	payload.rng_state = tea(gl_LaunchIDEXT.x * pcs.frame_count, gl_LaunchIDEXT.y * pcs.frame_count);
+
+	payload.color = vec3(0.0);
+	for(int i = 0; i < NUM_SAMPLES; ++i) {
+		payload.depth = 0;
+		payload.atten = vec3(1.0);
+    	traceRayEXT(
+			topLevelAS, 
+			gl_RayFlagsOpaqueEXT | gl_RayFlagsCullBackFacingTrianglesEXT, 
+			0xff, 
+			0, 
+			0, 
+			0, 
+			origin.xyz, 
+			tmin, 
+			direction.xyz, 
+			tmax, 
+			0
+		);
+	}
+
+	payload.color /= NUM_SAMPLES;
+
+	payload.color = vec3(
+		sqrt(payload.color.r),	
+		sqrt(payload.color.g),	
+		sqrt(payload.color.b)	
+	);
+	imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(payload.color, 1.0f));
+}

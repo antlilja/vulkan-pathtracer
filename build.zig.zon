@@ -1,0 +1,33 @@
+.{
+    .name = "vulkan-pathtracer",
+    .version = "1.0.0",
+
+    .dependencies = .{
+        .@"vulkan-zig" = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/8bd83cad43bf3441d3f17151bcf7e978a022755d.tar.gz",
+            .hash = "12202ff31908e15e3fa1a410687be8f7e5d95ad2219b1682ff5f8655fa9e4eeae56c",
+        },
+        .@"vulkan-headers" = .{
+            .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.285.tar.gz",
+            .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
+        },
+        .cgltf = .{
+            .url = "https://github.com/jkuhlmann/cgltf/archive/de399881c65c438a635627c749440eeea7e05599.tar.gz",
+            .hash = "12200fb887b4bf7b2d847f4f660f8ea59017e02f25aee081b8555b55011392f9068e",
+        },
+        .stb = .{
+            .url = "https://github.com/nothings/stb/archive/ae721c50eaf761660b4f90cc590453cdb0c2acd0.tar.gz",
+            .hash = "1220619c06a947cfacce985293ff16994db6058f2369d3c2ffcf9da60d7caa8b2f9b",
+        },
+        .clap = .{
+            .url = "https://github.com/Hejsil/zig-clap/archive/7a2883c7b884ab3e88c9fbf29193894a844da4d5.tar.gz",
+            .hash = "12204b2fb733b2de9184d1907032709e79c2595b4adc9bed12a8383b114d4c0da932",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
