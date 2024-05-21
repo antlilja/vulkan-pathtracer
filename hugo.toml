@@ -1,0 +1,69 @@
+baseURL = 'https://example.org/'
+languageCode = 'en-us'
+title = 'DH2323 Project Blog'
+theme = 'typo'
+
+[taxonomies]
+tag = 'tags'
+
+[params]
+# Appearance settings
+theme = 'light'
+
+# Intro on main page, content is markdown
+homeIntroTitle = 'glTF Scene Path Traced in Vulkan'
+homeIntroContent = """
+***Anton Lilja***
+![header image](/vulkan-pathtracer/images/teaser.png "bistro render")
+
+## Week 19
+The first week was spent setting up Vulkan and getting a basic ray tracing. 
+This wasn’t too tricky as I’ve worked with Vulkan before but not its ray tracing extensions. 
+I followed parts of the [NVIDIA Vulkan ray tracing tutorial](https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/) and a [Khronos blog](https://www.khronos.org/blog/ray-tracing-in-vulkan#blog_Ray_Tracing_Pipelines) to understand how to interact with ray tracing hardware through Vulkan. 
+I think I had the benefit of having both written ray tracers and worked with Vulkan which made the process a lot less painful than it would’ve been otherwise.
+
+At the end of the week I had a basic ray tracer which could display the normals of a cube.
+It had a moveable camera, but not any scene loading instead models had to be specified by hand. 
+
+![cube normals](/vulkan-pathtracer/images/cube_normals.png "Cube with normals")
+
+## Week 20
+During the first part of week 20 I focused on figuring out how the glTF format works and how to load models using the “cgltf” library which takes care of loading .gltf and .glb files from disk and loading buffers. 
+Actually parsing this data and getting it onto the GPU still had to be done in the program.  
+
+![bistro normals](/vulkan-pathtracer/images/normal_bistro.png "Bistro scene with normals")
+
+Most of my trouble came from sloppy programming or alignment issues between the host program and the GPU.
+
+During the later part of the week I worked a bit on shading. 
+I decided on a quite simple shading model where surfaces always absorb 50% of light energy and the roughness of a surface is adjustable.
+
+![bistro shaded](/vulkan-pathtracer/images/shaded_bistro.png "bistro shaded")
+
+## Week 21 (Final week)
+During the final week I implemented texture loading so that albedo, roughness, normals and emissive textures could be loaded. 
+Albedo and roughness was straightforward as I just needed to sample a texture for those values instead of using hardcoded ones. 
+Normal maps required a bit more work as I had to transform them from tangent space to world space meaning I had to load in tangents from the model alongside normals. 
+I spent some time trying to learn how to generate tangents myself but this took too much time and I had to settle for loading them. 
+
+![header image](/vulkan-pathtracer/images/teaser.png "bistro render")
+"""
+
+[[params.social]]
+name = "github"
+url = "https://github.com/antlilja"
+
+# Syntax highligth on code blocks
+[markup]
+[markup.highlight]
+style = 'algol'
+
+# Giscus comments
+[params.giscus]
+enable = false
+repo = "user/repo"
+repoid = "repoId"
+category = "General"
+categoryid = "categoryId"
+mapping = "pathname"
+theme = "preferred_color_scheme"

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en-us"
+  dir="ltr">
+
+  <head>
+	<meta name="generator" content="Hugo 0.125.5"><script src="/livereload.js?mindelay=10&amp;v=2&amp;port=1313&amp;path=livereload" data-no-instant defer></script>
+    <meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+
+<title>
+    
+    DH2323 Project Blog
+    
+</title>
+
+
+
+<link rel="stylesheet" href="/assets/combined.min.c3083bdd3c19496ed0d975ef00b949dfc1c0a6c9e8ba82b9b74ab94356bc6503.css" media="all">
+
+
+
+  </head>
+
+  
+
+  
+  
+  
+
+  <body class="light">
+
+    <div class="content">
+      <header>
+        
+
+<div class="header">
+    <h1 class="header-title">DH2323 Project Blog</h1>
+
+    <div class="flex">
+        
+
+        
+    </div>
+
+</div>
+      </header>
+
+      <main class="main">
+        
+
+
+
+
+
+
+<div class="intro">
+    
+    <h1>GLTF Scene Path Traced in Vulkan</h1>
+    
+
+    
+    <p><p><em><strong>Anton Lilja</strong></em>
+
+
+
+
+<figure   >
+    <img loading="lazy" alt="header image" src=" /vulkan-pathtracer/teaser.png">
+</figure></p>
+<h2 id="week-19">Week 19</h2>
+<p>The first week was spent setting up Vulkan and getting a basic ray tracing.
+This wasn’t too tricky as I’ve worked with Vulkan before but not its ray tracing extensions.
+I followed parts of the <a href="https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/">NVIDIA Vulkan ray tracing tutorial</a> and a <a href="https://www.khronos.org/blog/ray-tracing-in-vulkan#blog_Ray_Tracing_Pipelines">Khronos blog</a> to understand how to interact with ray tracing hardware through Vulkan.
+I think I had the benefit of having both written ray tracers and worked with Vulkan which made the process a lot less painful than it would’ve been otherwise.</p>
+<p>At the end of the week I had a basic ray tracer which could display the normals of a cube.
+It had a moveable camera, but not any scene loading instead models had to be specified by hand.</p>
+<p>
+
+
+
+<figure   >
+    <img loading="lazy" alt="cube normals" src=" /vulkan-pathtracer/images/cube_normals.png">
+</figure></p>
+<h2 id="week-20">Week 20</h2>
+<p>During the first part of week 20 I focused on figuring out how the GLTF format works and how to load models using the “cgltf” library which takes care of loading .gltf and .glb files from disk and loading buffers.
+Actually parsing this data and getting it onto the GPU still had to be done in the program.</p>
+<p>
+
+
+
+<figure   >
+    <img loading="lazy" alt="bistro normals" src=" /vulkan-pathtracer/images/normal_bistro.png">
+</figure></p>
+<p>Most of my trouble came from sloppy programming or alignment issues between the host program and the GPU.</p>
+<p>During the later part of the week I worked a bit on shading.
+I decided on a quite simple shading model where surfaces always absorb 50% of light energy and the roughness of a surface is adjustable.</p>
+<p>
+
+
+
+<figure   >
+    <img loading="lazy" alt="bistro shaded" src=" /vulkan-pathtracer/images/shaded_bistro.png">
+</figure></p>
+<h2 id="week-21-final-week">Week 21 (Final week)</h2>
+<p>During the final week I implemented texture loading so that albedo, roughness, normals and emissive textures could be loaded.
+Albedo and roughness was straightforward as I just needed to sample a texture for those values instead of using hardcoded ones.
+Normal maps required a bit more work as I had to transform them from tangent space to world space meaning I had to load in tangents from the model alongside normals.
+I spent some time trying to learn how to generate tangents myself but this took too much time and I had to settle for loading them.</p>
+<p>
+
+
+
+<figure   >
+    <img loading="lazy" alt="header image" src=" /vulkan-pathtracer/images/teaser.png">
+</figure></p>
+</p>
+    
+</div>
+
+
+
+
+
+<div class="social-icons">
+    <a href="https://github.com/antlilja" target="_blank"
+        rel="noopener noreferrer me"
+        title="Github">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+    stroke-linecap="round" stroke-linejoin="round">
+    <path
+        d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22">
+    </path>
+</svg>
+    </a>
+</div>
+
+
+
+
+
+
+
+      </main>
+    </div>
+
+    <footer>
+      <p>Powered by
+    <a href="https://gohugo.io/">Hugo</a>
+    and
+    <a href="https://github.com/tomfran/typo">tomfran/typo</a>
+</p>
+
+
+    </footer>
+
+  </body>
+
+  <script>
+
+  function isAuto() {
+    return document.body.classList.contains("auto");
+  }
+
+  function setTheme() {
+    if (!isAuto()) {
+      return
+    }
+
+    document.body.classList.remove("auto");
+    let cls = "light";
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      cls = "dark";
+    }
+
+    document.body.classList.add(cls);
+  }
+
+  function invertBody() {
+    document.body.classList.toggle("dark");
+    document.body.classList.toggle("light");
+  }
+
+  if (isAuto()) {
+    window.matchMedia('(prefers-color-scheme: dark)').addListener(invertBody);
+  }
+
+  setTheme();
+
+</script>
+
+</html>
