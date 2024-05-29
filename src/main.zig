@@ -144,6 +144,7 @@ pub fn main() !void {
         0.0,
         std.math.pi * 0.25,
     );
+    camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
 
     var frame_count: u32 = 0;
 
