@@ -37,6 +37,7 @@
               vulkan-validation-layers
               xorg.libxcb
               xcb-util-cursor
+              glsl_analyzer
           ];
 
           hardeningDisable = ["all"];
