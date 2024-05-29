@@ -28,8 +28,9 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    var extent = vk.Extent2D{ .width = 960, .height = 540 };
+    var extent = vk.Extent2D{ .width = 1920, .height = 1080 };
 
+    glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
     glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
     const window = glfw.glfwCreateWindow(
         @intCast(extent.width),
