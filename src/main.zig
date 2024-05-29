@@ -20,27 +20,6 @@ const Camera = @import("Camera.zig");
 const app_name = "Engine";
 
 pub fn main() !void {
-    if (glfw.glfwInit() != glfw.GLFW_TRUE) return error.FailedToInitGLWF;
-    defer glfw.glfwTerminate();
-
-    if (glfw.glfwVulkanSupported() != glfw.GLFW_TRUE) {
-        try std.io.getStdErr().writer().print("GLFW could not find vulkan", .{});
-        std.process.exit(1);
-    }
-
-    var extent = vk.Extent2D{ .width = 1920, .height = 1080 };
-
-    glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
-    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-    const window = glfw.glfwCreateWindow(
-        @intCast(extent.width),
-        @intCast(extent.height),
-        app_name,
-        null,
-        null,
-    ) orelse return error.FailedToInitWindow;
-    defer glfw.glfwDestroyWindow(window);
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -50,6 +29,8 @@ pub fn main() !void {
         \\-s, --scene-path <str>     Path to GLTF scene that is to be rendered.
         \\-n, --num-samples <u32>    How many samples per frame will be computed.
         \\-b, --num-bounces <u32>    How many times can a ray bounce before being terminated.
+        \\-x, --resolution-x <u32>   Horizontal resolution (default is 1920) 
+        \\-y, --resolution-y <u32>   Vertical resolution (default is 1080) 
         \\
     );
 
@@ -79,6 +60,30 @@ pub fn main() !void {
 
     const num_samples = res.args.@"num-samples" orelse 1;
     const num_bounces = res.args.@"num-bounces" orelse 2;
+
+    var extent = vk.Extent2D{
+        .width = res.args.@"resolution-x" orelse 1920,
+        .height = res.args.@"resolution-y" orelse 1080,
+    };
+
+    if (glfw.glfwInit() != glfw.GLFW_TRUE) return error.FailedToInitGLWF;
+    defer glfw.glfwTerminate();
+
+    if (glfw.glfwVulkanSupported() != glfw.GLFW_TRUE) {
+        try std.io.getStdErr().writer().print("GLFW could not find vulkan", .{});
+        std.process.exit(1);
+    }
+
+    glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
+    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
+    const window = glfw.glfwCreateWindow(
+        @intCast(extent.width),
+        @intCast(extent.height),
+        app_name,
+        null,
+        null,
+    ) orelse return error.FailedToInitWindow;
+    defer glfw.glfwDestroyWindow(window);
 
     var instance = try Instance.init(app_name);
     defer instance.deinit();
