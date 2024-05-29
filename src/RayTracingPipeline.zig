@@ -279,10 +279,7 @@ pub fn init(
     }
 
     const push_constant_range = vk.PushConstantRange{
-        .stage_flags = .{
-            .raygen_bit_khr = true,
-            .closest_hit_bit_khr = true,
-        },
+        .stage_flags = .{ .raygen_bit_khr = true },
         .offset = 0,
         .size = 128,
     };

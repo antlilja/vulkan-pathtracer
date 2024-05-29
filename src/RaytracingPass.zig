@@ -501,10 +501,7 @@ pub fn record(
     device.vkd.cmdPushConstants(
         cmdbuf,
         self.pipeline.pipeline_layout,
-        .{
-            .raygen_bit_khr = true,
-            .closest_hit_bit_khr = true,
-        },
+        .{ .raygen_bit_khr = true },
         0,
         128,
         @ptrCast(&push_constants),
