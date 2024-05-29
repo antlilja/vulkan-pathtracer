@@ -4,6 +4,7 @@ const clap = @import("clap");
 const glfw = @import("glfw.zig");
 
 const Timer = @import("Timer.zig");
+const Input = @import("Input.zig");
 
 const Vec3 = @import("Vec3.zig");
 
@@ -145,13 +146,7 @@ pub fn main() !void {
 
     var camera_update: bool = false;
 
-    var cursor_x: f64 = undefined;
-    var cursor_y: f64 = undefined;
-    glfw.glfwGetCursorPos(window, &cursor_x, &cursor_y);
-
-    var last_cursor_x: f64 = cursor_x;
-    var last_cursor_y: f64 = cursor_y;
-
+    var input = Input.init(window);
     var timer = Timer.start();
     while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
         defer timer.lap();
@@ -161,17 +156,12 @@ pub fn main() !void {
         glfw.glfwGetFramebufferSize(window, &w, &h);
         glfw.glfwPollEvents();
 
-        last_cursor_x = cursor_x;
-        last_cursor_y = cursor_y;
-        glfw.glfwGetCursorPos(window, &cursor_x, &cursor_y);
-        const cursor_delta_x = cursor_x - last_cursor_x;
-        const cursor_delta_y = cursor_y - last_cursor_y;
         // Don't present or resize swapchain while the window is minimized
         if (w == 0 or h == 0) {
             continue;
         }
-        camera_update = false;
         const cmdbuf = cmdbufs[swapchain.image_index];
+        input.update();
 
 
         const delta_time = timer.delta_time;
@@ -210,6 +200,7 @@ pub fn main() !void {
             velocity_camera_space = velocity_camera_space.scale(speed);
             velocity = velocity.scale(speed);
 
+            camera_update = false;
             if (!velocity_camera_space.eql(Vec3.zero)) {
                 camera.moveRotated(velocity_camera_space);
                 camera_update = true;
@@ -219,20 +210,19 @@ pub fn main() !void {
                 camera.move(velocity);
                 camera_update = true;
             }
-        }
 
-        // Camera rotation
-        if (glfw.glfwGetMouseButton(window, glfw.GLFW_MOUSE_BUTTON_LEFT) == glfw.GLFW_PRESS) {
-            camera.yaw -= @as(f32, @floatCast(cursor_delta_x)) * 0.005;
-            camera.pitch += @as(f32, @floatCast(cursor_delta_y)) * 0.005;
+            if (glfw.glfwGetMouseButton(window, glfw.GLFW_MOUSE_BUTTON_LEFT) == glfw.GLFW_PRESS) {
+                camera.yaw -= @as(f32, @floatCast(input.cursor_delta_x)) * 0.005;
+                camera.pitch += @as(f32, @floatCast(input.cursor_delta_y)) * 0.005;
 
-            if (cursor_delta_x != 0.0 or cursor_delta_y != 0.0) {
-                camera_update = true;
+                if (input.cursor_delta_x != 0.0 or input.cursor_delta_y != 0.0) {
+                    camera_update = true;
+                }
             }
-        }
 
-        if (camera_update) {
-            camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
+            if (camera_update) {
+                camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
+            }
         }
 
 
