@@ -177,31 +177,31 @@ pub fn main() !void {
         {
             var velocity_camera_space = Vec3.zero;
             var velocity = Vec3.zero;
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_W) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.w)) {
                 velocity_camera_space = velocity_camera_space.add(Vec3.new(0.0, 0.0, delta_time));
             }
 
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_S) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.s)) {
                 velocity_camera_space = velocity_camera_space.add(Vec3.new(0.0, 0.0, -delta_time));
             }
 
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_A) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.a)) {
                 velocity_camera_space = velocity_camera_space.add(Vec3.new(delta_time, 0.0, 0.0));
             }
 
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_D) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.d)) {
                 velocity_camera_space = velocity_camera_space.add(Vec3.new(-delta_time, 0.0, 0.0));
             }
 
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_SPACE) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.space)) {
                 velocity = velocity.add(Vec3.new(0.0, delta_time, 0.0));
             }
 
-            if (glfw.glfwGetKey(window, glfw.GLFW_KEY_LEFT_CONTROL) == glfw.GLFW_PRESS) {
+            if (input.isKeyPressed(.left_control)) {
                 velocity = velocity.add(Vec3.new(0.0, -delta_time, 0.0));
             }
 
-            const speed: f32 = if (glfw.glfwGetKey(window, glfw.GLFW_KEY_LEFT_SHIFT) == glfw.GLFW_PRESS) 20.0 else 10.0;
+            const speed: f32 = if (input.isKeyPressed(.left_shift)) 20.0 else 10.0;
 
             velocity_camera_space = velocity_camera_space.scale(speed);
             velocity = velocity.scale(speed);
@@ -217,7 +217,7 @@ pub fn main() !void {
                 camera_update = true;
             }
 
-            if (glfw.glfwGetMouseButton(window, glfw.GLFW_MOUSE_BUTTON_LEFT) == glfw.GLFW_PRESS) {
+            if (input.isMouseButtonPressed(.left)) {
                 camera.yaw -= @as(f32, @floatCast(input.cursor_delta_x)) * 0.005;
                 camera.pitch += @as(f32, @floatCast(input.cursor_delta_y)) * 0.005;
 

@@ -4,6 +4,46 @@ const glfw = @import("glfw.zig");
 
 const Self = @This();
 
+pub const Key = enum(c_int) {
+    a = glfw.GLFW_KEY_A,
+    b = glfw.GLFW_KEY_B,
+    c = glfw.GLFW_KEY_C,
+    d = glfw.GLFW_KEY_D,
+    e = glfw.GLFW_KEY_E,
+    f = glfw.GLFW_KEY_F,
+    g = glfw.GLFW_KEY_G,
+    h = glfw.GLFW_KEY_H,
+    i = glfw.GLFW_KEY_I,
+    j = glfw.GLFW_KEY_J,
+    k = glfw.GLFW_KEY_K,
+    l = glfw.GLFW_KEY_L,
+    m = glfw.GLFW_KEY_M,
+    n = glfw.GLFW_KEY_N,
+    o = glfw.GLFW_KEY_O,
+    p = glfw.GLFW_KEY_P,
+    q = glfw.GLFW_KEY_Q,
+    r = glfw.GLFW_KEY_R,
+    s = glfw.GLFW_KEY_S,
+    t = glfw.GLFW_KEY_T,
+    u = glfw.GLFW_KEY_U,
+    v = glfw.GLFW_KEY_V,
+    w = glfw.GLFW_KEY_W,
+    x = glfw.GLFW_KEY_X,
+    y = glfw.GLFW_KEY_Y,
+    z = glfw.GLFW_KEY_Z,
+    left_shift = glfw.GLFW_KEY_LEFT_SHIFT,
+    right_shift = glfw.GLFW_KEY_RIGHT_SHIFT,
+    left_control = glfw.GLFW_KEY_LEFT_CONTROL,
+    right_control = glfw.GLFW_KEY_RIGHT_CONTROL,
+    space = glfw.GLFW_KEY_SPACE,
+};
+
+pub const MouseButton = enum(c_int) {
+    left = glfw.GLFW_MOUSE_BUTTON_LEFT,
+    right = glfw.GLFW_MOUSE_BUTTON_RIGHT,
+    middle = glfw.GLFW_MOUSE_BUTTON_MIDDLE,
+};
+
 window: *glfw.GLFWwindow,
 
 cursor_x: f64,
@@ -39,18 +79,18 @@ pub fn update(self: *Self) void {
     self.cursor_y = new_cursor_y;
 }
 
-pub fn isKeyPressed(self: *Self, key: c_int) bool {
-    return glfw.glfwGetKey(self.window, key) == glfw.GLFW_PRESS;
+pub fn isKeyPressed(self: *Self, key: Key) bool {
+    return glfw.glfwGetKey(self.window, @intFromEnum(key)) == glfw.GLFW_PRESS;
 }
 
-pub fn isKeyReleased(self: *Self, key: c_int) bool {
-    return glfw.glfwGetKey(self.window, key) == glfw.GLFW_RELEASE;
+pub fn isKeyReleased(self: *Self, key: Key) bool {
+    return glfw.glfwGetKey(self.window, @intFromEnum(key)) == glfw.GLFW_RELEASE;
 }
 
-pub fn isMouseButtonPressed(self: *Self, button: c_int) bool {
-    return glfw.glfwGetMouseButton(self.window, button) == glfw.GLFW_PRESS;
+pub fn isMouseButtonPressed(self: *Self, button: MouseButton) bool {
+    return glfw.glfwGetMouseButton(self.window, @intFromEnum(button)) == glfw.GLFW_PRESS;
 }
 
-pub fn isMouseButtonReleased(self: *Self, button: c_int) bool {
-    return glfw.glfwGetMouseButton(self.window, button) == glfw.GLFW_RELEASE;
+pub fn isMouseButtonReleased(self: *Self, button: MouseButton) bool {
+    return glfw.glfwGetMouseButton(self.window, @intFromEnum(button)) == glfw.GLFW_RELEASE;
 }
