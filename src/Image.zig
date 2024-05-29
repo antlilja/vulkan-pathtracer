@@ -241,3 +241,80 @@ pub fn transistionLayout(
     try device.vkd.queueSubmit(device.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
     try device.vkd.queueWaitIdle(device.graphics_queue.handle);
 }
+
+pub fn setLayout(
+    self: *const Self,
+    device: *const Device,
+    cmdbuf: vk.CommandBuffer,
+    old_layout: vk.ImageLayout,
+    new_layout: vk.ImageLayout,
+) void {
+    imageSetLayout(
+        device,
+        cmdbuf,
+        self.image,
+        old_layout,
+        new_layout,
+    );
+}
+
+pub fn imageSetLayout(
+    device: *const Device,
+    cmdbuf: vk.CommandBuffer,
+    image: vk.Image,
+    old_layout: vk.ImageLayout,
+    new_layout: vk.ImageLayout,
+) void {
+    const barrier = vk.ImageMemoryBarrier{
+        .old_layout = old_layout,
+        .new_layout = new_layout,
+        .src_queue_family_index = ~@as(u32, 0),
+        .dst_queue_family_index = ~@as(u32, 0),
+        .image = image,
+        .src_access_mask = accessFlagsForImageLayout(old_layout),
+        .dst_access_mask = accessFlagsForImageLayout(new_layout),
+        .subresource_range = .{
+            .base_mip_level = 0,
+            .level_count = 1,
+            .base_array_layer = 0,
+            .layer_count = 1,
+            .aspect_mask = .{ .color_bit = true },
+        },
+    };
+
+    device.vkd.cmdPipelineBarrier(
+        cmdbuf,
+        pipelineStageForLayout(old_layout),
+        pipelineStageForLayout(new_layout),
+        .{},
+        0,
+        undefined,
+        0,
+        undefined,
+        1,
+        @ptrCast(&barrier),
+    );
+}
+
+fn accessFlagsForImageLayout(layout: vk.ImageLayout) vk.AccessFlags {
+    return switch (layout) {
+        .preinitialized => .{ .host_write_bit = true },
+        .transfer_dst_optimal => .{ .transfer_write_bit = true },
+        .transfer_src_optimal => .{ .transfer_read_bit = true },
+        .color_attachment_optimal => .{ .color_attachment_write_bit = true },
+        .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_write_bit = true },
+        .shader_read_only_optimal => .{ .shader_read_bit = true },
+        else => .{},
+    };
+}
+
+fn pipelineStageForLayout(layout: vk.ImageLayout) vk.PipelineStageFlags {
+    return switch (layout) {
+        .preinitialized => .{ .host_bit = true },
+        .transfer_dst_optimal, .transfer_src_optimal => .{ .transfer_bit = true },
+        .color_attachment_optimal => .{ .color_attachment_output_bit = true },
+        .depth_stencil_attachment_optimal, .shader_read_only_optimal => .{ .all_commands_bit = true },
+        .undefined => .{ .top_of_pipe_bit = true },
+        else => .{ .bottom_of_pipe_bit = true },
+    };
+}

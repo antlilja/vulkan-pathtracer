@@ -111,26 +111,12 @@ pub fn main() !void {
     }, null);
     defer device.vkd.destroyCommandPool(device.device, pool, null);
 
-    var storage_image = try Image.init(
+
+    var raytracing_pass = try RaytracingPass.init(
+        &instance,
         &device,
         swapchain.extent,
         swapchain.surface_format.format,
-        .{
-            .transfer_src_bit = true,
-            .storage_bit = true,
-        },
-        .optimal,
-        .undefined,
-        .{ .device_local_bit = true },
-        .{},
-    );
-    defer storage_image.deinit(&device);
-    try storage_image.transistionLayout(&device, pool, .undefined, .general);
-
-    const raytracing_pass = try RaytracingPass.init(
-        &instance,
-        &device,
-        storage_image.view,
         pool,
         allocator,
         scene_path,
@@ -272,7 +258,6 @@ pub fn main() !void {
             &device,
             cmdbuf,
             &raytracing_pass,
-            storage_image.image,
             swapchain.currentSwapImage().image,
             swapchain.extent,
             camera,
@@ -299,24 +284,12 @@ pub fn main() !void {
 
             camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
 
-            storage_image.deinit(&device);
-            storage_image = try Image.init(
+            try raytracing_pass.resize(
                 &device,
                 swapchain.extent,
                 swapchain.surface_format.format,
-                .{
-                    .transfer_src_bit = true,
-                    .storage_bit = true,
-                    .sampled_bit = true,
-                },
-                .optimal,
-                .undefined,
-                .{ .device_local_bit = true },
-                .{},
+                pool,
             );
-            try storage_image.transistionLayout(&device, pool, .undefined, .general);
-
-            raytracing_pass.pipeline.updateImageDescriptor(&device, storage_image.view);
 
             destroyCommandBuffers(&device, pool, allocator, cmdbufs);
             cmdbufs = try createCommandBuffers(
@@ -335,7 +308,6 @@ fn recordCommandBuffer(
     device: *const Device,
     cmdbuf: vk.CommandBuffer,
     ray_tracing_pass: *const RaytracingPass,
-    storage_image: vk.Image,
     swap_image: vk.Image,
     extent: vk.Extent2D,
     camera: Camera,
@@ -343,48 +315,31 @@ fn recordCommandBuffer(
 ) !void {
     try device.vkd.beginCommandBuffer(cmdbuf, &.{});
 
-    try ray_tracing_pass.record(
+    Image.imageSetLayout(
         device,
         cmdbuf,
+        swap_image,
+        .undefined,
+        .transfer_dst_optimal,
+    );
+
+    try ray_tracing_pass.record(
+        device,
+        swap_image,
         extent,
+        cmdbuf,
         camera,
         frame_count,
     );
 
-    setImageLayout(device, cmdbuf, swap_image, .undefined, .transfer_dst_optimal);
-    setImageLayout(device, cmdbuf, storage_image, .general, .transfer_src_optimal);
+    Image.imageSetLayout(
+        device,
+        cmdbuf,
+        swap_image,
+        .transfer_dst_optimal,
+        .present_src_khr,
+    );
 
-    {
-        const image_copy = vk.ImageCopy{
-            .src_offset = .{ .x = 0, .y = 0, .z = 0 },
-            .dst_offset = .{ .x = 0, .y = 0, .z = 0 },
-            .src_subresource = .{
-                .aspect_mask = .{ .color_bit = true },
-                .mip_level = 0,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .dst_subresource = .{
-                .aspect_mask = .{ .color_bit = true },
-                .mip_level = 0,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .extent = .{ .width = extent.width, .height = extent.height, .depth = 1 },
-        };
-        device.vkd.cmdCopyImage(
-            cmdbuf,
-            storage_image,
-            .transfer_src_optimal,
-            swap_image,
-            .transfer_dst_optimal,
-            1,
-            @ptrCast(&image_copy),
-        );
-    }
-
-    setImageLayout(device, cmdbuf, swap_image, .transfer_dst_optimal, .present_src_khr);
-    setImageLayout(device, cmdbuf, storage_image, .transfer_src_optimal, .general);
 
     try device.vkd.endCommandBuffer(cmdbuf);
 }
@@ -415,65 +370,4 @@ fn destroyCommandBuffers(
 ) void {
     device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
     allocator.free(cmdbufs);
-}
-
-fn accessFlagsForImageLayout(layout: vk.ImageLayout) vk.AccessFlags {
-    return switch (layout) {
-        .preinitialized => .{ .host_write_bit = true },
-        .transfer_dst_optimal => .{ .transfer_write_bit = true },
-        .transfer_src_optimal => .{ .transfer_read_bit = true },
-        .color_attachment_optimal => .{ .color_attachment_write_bit = true },
-        .depth_stencil_attachment_optimal => .{ .depth_stencil_attachment_write_bit = true },
-        .shader_read_only_optimal => .{ .shader_read_bit = true },
-        else => .{},
-    };
-}
-
-fn pipelineStageForLayout(layout: vk.ImageLayout) vk.PipelineStageFlags {
-    return switch (layout) {
-        .preinitialized => .{ .host_bit = true },
-        .transfer_dst_optimal, .transfer_src_optimal => .{ .transfer_bit = true },
-        .color_attachment_optimal => .{ .color_attachment_output_bit = true },
-        .depth_stencil_attachment_optimal, .shader_read_only_optimal => .{ .all_commands_bit = true },
-        .undefined => .{ .top_of_pipe_bit = true },
-        else => .{ .bottom_of_pipe_bit = true },
-    };
-}
-
-fn setImageLayout(
-    device: *const Device,
-    cmdbuf: vk.CommandBuffer,
-    image: vk.Image,
-    old_layout: vk.ImageLayout,
-    new_layout: vk.ImageLayout,
-) void {
-    const barrier = vk.ImageMemoryBarrier{
-        .old_layout = old_layout,
-        .new_layout = new_layout,
-        .src_queue_family_index = ~@as(u32, 0),
-        .dst_queue_family_index = ~@as(u32, 0),
-        .image = image,
-        .src_access_mask = accessFlagsForImageLayout(old_layout),
-        .dst_access_mask = accessFlagsForImageLayout(new_layout),
-        .subresource_range = .{
-            .base_mip_level = 0,
-            .level_count = 1,
-            .base_array_layer = 0,
-            .layer_count = 1,
-            .aspect_mask = .{ .color_bit = true },
-        },
-    };
-
-    device.vkd.cmdPipelineBarrier(
-        cmdbuf,
-        pipelineStageForLayout(old_layout),
-        pipelineStageForLayout(new_layout),
-        .{},
-        0,
-        undefined,
-        0,
-        undefined,
-        1,
-        @ptrCast(&barrier),
-    );
 }

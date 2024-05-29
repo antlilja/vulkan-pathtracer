@@ -7,7 +7,7 @@ const Camera = @import("Camera.zig");
 const Instance = @import("Instance.zig");
 const Device = @import("Device.zig");
 const Buffer = @import("Buffer.zig");
-const Texture = @import("Texture.zig");
+const Image = @import("Image.zig");
 
 const BLAS = @import("BLAS.zig");
 const TLAS = @import("TLAS.zig");
@@ -26,19 +26,21 @@ const ObjDesc = struct {
 
 blases: []BLAS,
 tlas: TLAS,
-albedos: []const Texture,
-metal_roughness: []const Texture,
-emissive: []const Texture,
-normals: []const Texture,
+albedos: []const Image,
+metal_roughness: []const Image,
+emissive: []const Image,
+normals: []const Image,
 blas_buffer: Buffer,
 obj_descs: Buffer,
 
+storage_image: Image,
 pipeline: RayTracingPipeline,
 
 pub fn init(
     instance: *const Instance,
     device: *const Device,
-    image_view: vk.ImageView,
+    extent: vk.Extent2D,
+    format: vk.Format,
     pool: vk.CommandPool,
     allocator: std.mem.Allocator,
     scene_path: []const u8,
@@ -140,11 +142,27 @@ pub fn init(
     );
     errdefer obj_desc_buffer.deinit(device);
 
+    var storage_image = try Image.init(
+        device,
+        extent,
+        format,
+        .{
+            .transfer_src_bit = true,
+            .storage_bit = true,
+        },
+        .optimal,
+        .undefined,
+        .{ .device_local_bit = true },
+        .{},
+    );
+    errdefer storage_image.deinit(device);
+    try storage_image.transistionLayout(device, pool, .undefined, .general);
+
     const pipeline = try RayTracingPipeline.init(
         instance,
         device,
         &tlas,
-        image_view,
+        storage_image.view,
         obj_desc_buffer.buffer,
         albedos,
         metal_roughness,
@@ -165,12 +183,15 @@ pub fn init(
         .metal_roughness = metal_roughness,
         .emissive = emissive,
         .normals = normals,
+
+        .storage_image = storage_image,
         .pipeline = pipeline,
     };
 }
 
-pub fn deinit(self: *const Self, device: *const Device, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *Self, device: *const Device, allocator: std.mem.Allocator) void {
     self.pipeline.deinit(device);
+    self.storage_image.deinit(device);
 
     self.obj_descs.deinit(device);
 
@@ -356,9 +377,9 @@ fn createTextures(
     pool: vk.CommandPool,
     materials: []const Scene.Material,
     allocator: std.mem.Allocator,
-) ![]const Texture {
+) ![]const Image {
     var texture_index: usize = 0;
-    const textures = try allocator.alloc(Texture, materials.len);
+    const textures = try allocator.alloc(Image, materials.len);
     errdefer {
         for (0..texture_index) |i| {
             textures[i].deinit(device);
@@ -369,7 +390,7 @@ fn createTextures(
     for (materials, textures) |material, *texture| {
         switch (material) {
             .texture => |t| {
-                texture.* = try Texture.init(
+                texture.* = try Image.initAndUpload(
                     device,
                     t.data,
                     .{ .width = t.width, .height = t.height },
@@ -394,7 +415,7 @@ fn createTextures(
 
                     break :blk (@as(u32, r) << 24) | (@as(u32, g) << 16) | (@as(u32, b) << 8) | @as(u32, a);
                 };
-                texture.* = try Texture.init(
+                texture.* = try Image.initAndUpload(
                     device,
                     std.mem.asBytes(&color_u32),
                     .{ .width = 1, .height = 1 },
@@ -421,8 +442,9 @@ fn createTextures(
 pub fn record(
     self: *const Self,
     device: *const Device,
-    cmdbuf: vk.CommandBuffer,
+    dst_image: vk.Image,
     extent: vk.Extent2D,
+    cmdbuf: vk.CommandBuffer,
     camera: Camera,
     frame_count: u32,
 ) !void {
@@ -497,5 +519,80 @@ pub fn record(
         extent.width,
         extent.height,
         1,
+    );
+
+    // Copy from storage image to destination image
+    self.storage_image.setLayout(
+        device,
+        cmdbuf,
+        .general,
+        .transfer_src_optimal,
+    );
+
+    const image_copy = vk.ImageCopy{
+        .src_offset = .{ .x = 0, .y = 0, .z = 0 },
+        .dst_offset = .{ .x = 0, .y = 0, .z = 0 },
+        .src_subresource = .{
+            .aspect_mask = .{ .color_bit = true },
+            .mip_level = 0,
+            .base_array_layer = 0,
+            .layer_count = 1,
+        },
+        .dst_subresource = .{
+            .aspect_mask = .{ .color_bit = true },
+            .mip_level = 0,
+            .base_array_layer = 0,
+            .layer_count = 1,
+        },
+        .extent = .{
+            .width = extent.width,
+            .height = extent.height,
+            .depth = 1,
+        },
+    };
+    device.vkd.cmdCopyImage(
+        cmdbuf,
+        self.storage_image.image,
+        .transfer_src_optimal,
+        dst_image,
+        .transfer_dst_optimal,
+        1,
+        @ptrCast(&image_copy),
+    );
+
+    self.storage_image.setLayout(
+        device,
+        cmdbuf,
+        .transfer_src_optimal,
+        .general,
+    );
+}
+
+pub fn resize(
+    self: *Self,
+    device: *const Device,
+    extent: vk.Extent2D,
+    format: vk.Format,
+    pool: vk.CommandPool,
+) !void {
+    self.storage_image.deinit(device);
+    self.storage_image = try Image.init(
+        device,
+        extent,
+        format,
+        .{
+            .transfer_src_bit = true,
+            .storage_bit = true,
+        },
+        .optimal,
+        .undefined,
+        .{ .device_local_bit = true },
+        .{},
+    );
+    try self.storage_image.transistionLayout(device, pool, .undefined, .general);
+
+    self.pipeline.updateImageDescriptor(
+        device,
+        self.storage_image.view,
     );
 }

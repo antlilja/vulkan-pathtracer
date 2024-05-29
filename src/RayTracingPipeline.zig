@@ -7,9 +7,10 @@ const Device = @import("Device.zig");
 const TLAS = @import("TLAS.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
-const Texture = @import("Texture.zig");
 
 const Self = @This();
+
+sampler: vk.Sampler,
 
 descriptor_pool: vk.DescriptorPool,
 descriptor_set_layout: vk.DescriptorSetLayout,
@@ -33,18 +34,38 @@ pub fn init(
     tlas: *const TLAS,
     image_view: vk.ImageView,
     obj_desc_buffer: vk.Buffer,
-    albedos: []const Texture,
-    metal_roughness: []const Texture,
-    emissive: []const Texture,
-    normals: []const Texture,
+    albedos: []const Image,
+    metal_roughness: []const Image,
+    emissive: []const Image,
+    normals: []const Image,
     num_samples: u32,
     num_bounces: u32,
     allocator: std.mem.Allocator,
 ) !Self {
+    const sampler = try device.vkd.createSampler(device.device, &.{
+        .mag_filter = .linear,
+        .min_filter = .linear,
+        .address_mode_u = .repeat,
+        .address_mode_v = .repeat,
+        .address_mode_w = .repeat,
+        .anisotropy_enable = vk.FALSE,
+        .max_anisotropy = 0.0,
+        .border_color = .int_opaque_black,
+        .unnormalized_coordinates = vk.FALSE,
+        .compare_enable = vk.FALSE,
+        .compare_op = .always,
+        .mipmap_mode = .linear,
+        .mip_lod_bias = 0.0,
+        .min_lod = 0.0,
+        .max_lod = 0.0,
+    }, null);
+    errdefer device.vkd.destroySampler(device.device, sampler, null);
+
     const pool_sizes = [_]vk.DescriptorPoolSize{
         .{ .type = .acceleration_structure_khr, .descriptor_count = 1 },
         .{ .type = .storage_image, .descriptor_count = 1 },
-        .{ .type = .storage_buffer, .descriptor_count = 4 },
+        .{ .type = .storage_buffer, .descriptor_count = 1 },
+        .{ .type = .combined_image_sampler, .descriptor_count = 4 },
     };
 
     const descriptor_pool = try device.vkd.createDescriptorPool(device.device, &.{
@@ -135,8 +156,8 @@ pub fn init(
 
         for (albedos, albedo_image_info) |texture, *info| {
             info.* = .{
-                .image_view = texture.image.view,
-                .sampler = texture.sampler,
+                .image_view = texture.view,
+                .sampler = sampler,
                 .image_layout = .shader_read_only_optimal,
             };
         }
@@ -146,8 +167,8 @@ pub fn init(
 
         for (metal_roughness, metal_roughness_image_info) |texture, *info| {
             info.* = .{
-                .image_view = texture.image.view,
-                .sampler = texture.sampler,
+                .image_view = texture.view,
+                .sampler = sampler,
                 .image_layout = .shader_read_only_optimal,
             };
         }
@@ -157,8 +178,8 @@ pub fn init(
 
         for (emissive, emissive_image_info) |texture, *info| {
             info.* = .{
-                .image_view = texture.image.view,
-                .sampler = texture.sampler,
+                .image_view = texture.view,
+                .sampler = sampler,
                 .image_layout = .shader_read_only_optimal,
             };
         }
@@ -168,8 +189,8 @@ pub fn init(
 
         for (normals, normal_image_info) |texture, *info| {
             info.* = .{
-                .image_view = texture.image.view,
-                .sampler = texture.sampler,
+                .image_view = texture.view,
+                .sampler = sampler,
                 .image_layout = .shader_read_only_optimal,
             };
         }
@@ -443,6 +464,7 @@ pub fn init(
     const closest_hit_device_address = device.vkd.getBufferDeviceAddress(device.device, &.{ .buffer = closest_hit_binding_table.buffer });
 
     return .{
+        .sampler = sampler,
         .descriptor_pool = descriptor_pool,
         .descriptor_set = descriptor_set,
         .descriptor_set_layout = descriptor_set_layout,
@@ -467,6 +489,7 @@ pub fn deinit(self: *const Self, device: *const Device) void {
     device.vkd.destroyPipelineLayout(device.device, self.pipeline_layout, null);
     device.vkd.destroyDescriptorSetLayout(device.device, self.descriptor_set_layout, null);
     device.vkd.destroyDescriptorPool(device.device, self.descriptor_pool, null);
+    device.vkd.destroySampler(device.device, self.sampler, null);
 }
 
 pub fn updateImageDescriptor(self: *const Self, device: *const Device, image_view: vk.ImageView) void {
