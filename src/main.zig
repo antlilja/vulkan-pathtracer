@@ -3,6 +3,8 @@ const vk = @import("vulkan");
 const clap = @import("clap");
 const glfw = @import("glfw.zig");
 
+const Timer = @import("Timer.zig");
+
 const Vec3 = @import("Vec3.zig");
 
 const Instance = @import("Instance.zig");
@@ -133,11 +135,6 @@ pub fn main() !void {
     );
     defer destroyCommandBuffers(&device, pool, allocator, cmdbufs);
 
-    var timer = try std.time.Timer.start();
-
-    var fps_count: u32 = 0;
-    var last_fps_second = try std.time.Instant.now();
-
     var camera = Camera.new(
         Vec3.new(0.0, 0.0, 0.0),
         0.0,
@@ -145,10 +142,6 @@ pub fn main() !void {
         std.math.pi * 0.25,
     );
     camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
-
-    var frame_count: u32 = 0;
-
-    var accumulator: f32 = 0.0;
 
     var camera_update: bool = false;
 
@@ -159,7 +152,10 @@ pub fn main() !void {
     var last_cursor_x: f64 = cursor_x;
     var last_cursor_y: f64 = cursor_y;
 
+    var timer = Timer.start();
     while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
+        defer timer.lap();
+
         var w: c_int = undefined;
         var h: c_int = undefined;
         glfw.glfwGetFramebufferSize(window, &w, &h);
@@ -177,15 +173,9 @@ pub fn main() !void {
         camera_update = false;
         const cmdbuf = cmdbufs[swapchain.image_index];
 
-        const time = try std.time.Instant.now();
 
-        const delta_time = @as(f32, @floatFromInt(timer.lap())) / @as(f32, @floatFromInt(std.time.ns_per_s));
+        const delta_time = timer.delta_time;
 
-        if (time.since(last_fps_second) >= std.time.ns_per_s) {
-            std.debug.print("FPS: {}, Frame time: {}\n", .{ fps_count, delta_time });
-            fps_count = 0;
-            last_fps_second = time;
-        }
 
         // Camera movement
         {
@@ -245,14 +235,8 @@ pub fn main() !void {
             camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
         }
 
-        accumulator += delta_time;
 
-        // Don't run if time since last frame is lower than 1/60 s (lock to 60 fps)
-        if (accumulator <= (1.0 / 60.0)) continue;
 
-        accumulator = 0.0;
-        frame_count += 1;
-        fps_count += 1;
 
         try swapchain.currentSwapImage().waitForFence(&device);
         try recordCommandBuffer(
@@ -262,7 +246,7 @@ pub fn main() !void {
             swapchain.currentSwapImage().image,
             swapchain.extent,
             camera,
-            frame_count,
+            timer.frame_count,
         );
 
         const state = swapchain.present(&device, cmdbuf) catch |err| switch (err) {
