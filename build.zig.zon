@@ -4,8 +4,8 @@
 
     .dependencies = .{
         .@"vulkan-zig" = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/8bd83cad43bf3441d3f17151bcf7e978a022755d.tar.gz",
-            .hash = "12202ff31908e15e3fa1a410687be8f7e5d95ad2219b1682ff5f8655fa9e4eeae56c",
+            .url = "https://github.com/Snektron/vulkan-zig/archive/ac5ad34a958b6c37ec2e5637d14887f38b4cf472.tar.gz",
+            .hash = "1220184cb84455f3e4706cd4f5202ff370929c6e3b18492e26f2183dec7e3dc2f93f",
         },
         .@"vulkan-headers" = .{
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.285.tar.gz",
@@ -20,8 +20,8 @@
             .hash = "1220619c06a947cfacce985293ff16994db6058f2369d3c2ffcf9da60d7caa8b2f9b",
         },
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/7a2883c7b884ab3e88c9fbf29193894a844da4d5.tar.gz",
-            .hash = "12204b2fb733b2de9184d1907032709e79c2595b4adc9bed12a8383b114d4c0da932",
+            .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
+            .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
         },
     },
 
