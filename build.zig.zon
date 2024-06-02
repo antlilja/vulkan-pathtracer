@@ -23,6 +23,10 @@
             .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
             .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
         },
+        .nuklear = .{
+            .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/34ea8bb042e5b6145395e2955bea82c61d8363e1.tar.gz",
+            .hash = "1220592c5f3140eb9cd9bcaefa2a67b5e842c4a876926c4ec2fd9e4c00eeb53c878a",
+        },
     },
 
     .paths = .{

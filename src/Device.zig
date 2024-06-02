@@ -86,6 +86,9 @@ const apis: []const vk.ApiInfo = &.{.{
         .cmdTraceRaysKHR = true,
         .cmdCopyImage = true,
         .cmdDispatch = true,
+
+        .cmdBeginRendering = true,
+        .cmdEndRendering = true,
     },
 }};
 
@@ -125,6 +128,8 @@ const required_device_extensions = [_][*:0]const u8{
     vk.extensions.khr_buffer_device_address.name,
     vk.extensions.ext_descriptor_indexing.name,
     vk.extensions.khr_deferred_host_operations.name,
+
+    vk.extensions.khr_dynamic_rendering.name,
 };
 
 vkd: DeviceDispatch,
@@ -178,12 +183,17 @@ pub fn init(instance: *const Instance, surface: vk.SurfaceKHR, allocator: std.me
         .runtime_descriptor_array = vk.TRUE,
     };
 
+    var dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeaturesKHR{
+        .p_next = @ptrCast(&runtime_descriptor_array_feature),
+        .dynamic_rendering = vk.TRUE,
+    };
+
     const device_features = vk.PhysicalDeviceFeatures{
         .shader_int_64 = vk.TRUE,
     };
 
     self.device = try instance.vki.createDevice(candidate.pdev, &.{
-        .p_next = @as(*const anyopaque, @ptrCast(&runtime_descriptor_array_feature)),
+        .p_next = @as(*const anyopaque, @ptrCast(&dynamic_rendering_features)),
         .queue_create_info_count = queue_count,
         .p_queue_create_infos = &qci,
         .enabled_extension_count = required_device_extensions.len,

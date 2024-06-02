@@ -48,6 +48,28 @@ pub fn build(b: *std.Build) !void {
         break :blk stb_image_lib;
     };
 
+    const nuklear_dep = b.dependency("nuklear", .{});
+    const nuklear_lib = blk: {
+        const nuklear_lib = b.addStaticLibrary(.{
+            .name = "nuklear",
+            .optimize = optimize,
+            .target = target,
+        });
+        const wf = b.addWriteFiles();
+        const nuklear_c = wf.addCopyFile(nuklear_dep.path("nuklear.h"), "nuklear.c");
+        nuklear_lib.addCSourceFile(.{
+            .file = nuklear_c,
+            .flags = &.{
+                "-DNK_IMPLEMENTATION",
+                "-DNK_INCLUDE_DEFAULT_FONT",
+                "-DNK_INCLUDE_FONT_BAKING",
+                "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT",
+            },
+        });
+        nuklear_lib.linkLibC();
+        break :blk nuklear_lib;
+    };
+
     const exe = b.addExecutable(.{
         .name = "vulkan-pathtracer",
         .root_source_file = b.path("src/main.zig"),
@@ -63,6 +85,8 @@ pub fn build(b: *std.Build) !void {
     exe.addIncludePath(cgltf_dep.path(""));
     exe.linkLibrary(stb_image_lib);
     exe.addIncludePath(stb_dep.path(""));
+    exe.linkLibrary(nuklear_lib);
+    exe.addIncludePath(nuklear_dep.path(""));
     b.installArtifact(exe);
 
     const shaders = ShaderCompileStep.create(
@@ -73,6 +97,8 @@ pub fn build(b: *std.Build) !void {
     shaders.add("ray_gen", "src/shaders/ray_gen.rgen", .{});
     shaders.add("miss", "src/shaders/miss.rmiss", .{});
     shaders.add("closest_hit", "src/shaders/closest_hit.rchit", .{});
+    shaders.add("nuklear_vert", "src/shaders/nuklear.vert", .{});
+    shaders.add("nuklear_frag", "src/shaders/nuklear.frag", .{});
     exe.root_module.addImport("shaders", shaders.getModule());
 
     const run_cmd = b.addRunArtifact(exe);

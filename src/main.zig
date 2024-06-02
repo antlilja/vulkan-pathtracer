@@ -5,6 +5,7 @@ const glfw = @import("glfw.zig");
 
 const Timer = @import("Timer.zig");
 const Input = @import("Input.zig");
+const Nuklear = @import("Nuklear.zig");
 
 const Vec3 = @import("Vec3.zig");
 
@@ -13,6 +14,7 @@ const Device = @import("Device.zig");
 const Swapchain = @import("Swapchain.zig");
 const Image = @import("Image.zig");
 
+const NuklearPass = @import("NuklearPass.zig");
 const RaytracingPass = @import("RaytracingPass.zig");
 
 const Camera = @import("Camera.zig");
@@ -120,6 +122,19 @@ pub fn main() !void {
     }, null);
     defer device.vkd.destroyCommandPool(device.device, pool, null);
 
+    var nuklear = try Nuklear.init(allocator);
+    defer nuklear.deinit(allocator);
+
+    var nuklear_pass = try NuklearPass.init(
+        &device,
+        swapchain.surface_format.format,
+        pool,
+        1024 * 512,
+        1024 * 128,
+        &nuklear,
+        allocator,
+    );
+    defer nuklear_pass.deinit(&device, allocator);
 
     var raytracing_pass = try RaytracingPass.init(
         &instance,
@@ -134,13 +149,16 @@ pub fn main() !void {
     );
     defer raytracing_pass.deinit(&device, allocator);
 
-    var cmdbufs = try createCommandBuffers(
-        &device,
-        pool,
-        &swapchain,
-        allocator,
-    );
-    defer destroyCommandBuffers(&device, pool, allocator, cmdbufs);
+    var cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
+    try device.vkd.allocateCommandBuffers(device.device, &.{
+        .command_pool = pool,
+        .level = .primary,
+        .command_buffer_count = @as(u32, @truncate(cmdbufs.len)),
+    }, cmdbufs.ptr);
+    defer {
+        device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
+        allocator.free(cmdbufs);
+    }
 
     var camera = Camera.new(
         Vec3.new(0.0, 0.0, 0.0),
@@ -156,25 +174,23 @@ pub fn main() !void {
     var timer = Timer.start();
     while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
         defer timer.lap();
+        defer nuklear.clear();
 
         var w: c_int = undefined;
         var h: c_int = undefined;
         glfw.glfwGetFramebufferSize(window, &w, &h);
         glfw.glfwPollEvents();
 
-        // Don't present or resize swapchain while the window is minimized
-        if (w == 0 or h == 0) {
-            continue;
-        }
-        const cmdbuf = cmdbufs[swapchain.image_index];
         input.update();
-
+        nuklear.update(&input);
 
         const delta_time = timer.delta_time;
 
+        // Don't present or resize swapchain while the window is minimized
+        if (w == 0 or h == 0) continue;
 
         // Camera movement
-        {
+        if (!nuklear.isCapturingInput()) {
             var velocity_camera_space = Vec3.zero;
             var velocity = Vec3.zero;
             if (input.isKeyPressed(.w)) {
@@ -231,19 +247,75 @@ pub fn main() !void {
             }
         }
 
+        if (nuklear.begin(
+            "FPS Info",
+            .{
+                .x = 0.0,
+                .y = 0.0,
+                .w = 175.0,
+                .h = 75.0,
+            },
+            .{ .no_scrollbar = true },
+        )) {
+            nuklear.layout_row_static(30.0, 175, 1);
 
+            nuklear.labelFmt(
+                "FPS: {d:.0}",
+                .{1.0 / timer.frame_time},
+                .left,
+            );
+            nuklear.labelFmt(
+                "Frame time: {d:.4} ms",
+                .{timer.frame_time * std.time.ms_per_s},
+                .left,
+            );
+        }
+        nuklear.end();
 
-
+        const cmdbuf = cmdbufs[swapchain.image_index];
         try swapchain.currentSwapImage().waitForFence(&device);
-        try recordCommandBuffer(
-            &device,
-            cmdbuf,
-            &raytracing_pass,
-            swapchain.currentSwapImage().image,
-            swapchain.extent,
-            camera,
-            timer.frame_count,
-        );
+
+        {
+            const swap_image = swapchain.currentSwapImage().image;
+            const swap_image_view = swapchain.currentSwapImage().view;
+
+            try device.vkd.beginCommandBuffer(cmdbuf, &.{});
+
+            Image.imageSetLayout(
+                &device,
+                cmdbuf,
+                swap_image,
+                .undefined,
+                .transfer_dst_optimal,
+            );
+
+            try raytracing_pass.record(
+                &device,
+                swap_image,
+                extent,
+                cmdbuf,
+                camera,
+                timer.frame_count,
+            );
+
+            Image.imageSetLayout(
+                &device,
+                cmdbuf,
+                swap_image,
+                .transfer_dst_optimal,
+                .present_src_khr,
+            );
+
+            try nuklear_pass.record(
+                &device,
+                cmdbuf,
+                swap_image_view,
+                extent,
+                &nuklear,
+            );
+
+            try device.vkd.endCommandBuffer(cmdbuf);
+        }
 
         const state = swapchain.present(&device, cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
@@ -252,6 +324,8 @@ pub fn main() !void {
 
         if (state == .suboptimal or extent.width != @as(u32, @intCast(w)) or extent.height != @as(u32, @intCast(h))) {
             try device.vkd.deviceWaitIdle(device.device);
+
+            const prev_num_swap_images = swapchain.swap_images.len;
 
             extent.width = @intCast(w);
             extent.height = @intCast(h);
@@ -272,83 +346,19 @@ pub fn main() !void {
                 pool,
             );
 
-            destroyCommandBuffers(&device, pool, allocator, cmdbufs);
-            cmdbufs = try createCommandBuffers(
-                &device,
-                pool,
-                &swapchain,
-                allocator,
-            );
+            if (prev_num_swap_images != swapchain.swap_images.len) {
+                device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
+                allocator.free(cmdbufs);
+
+                cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
+                try device.vkd.allocateCommandBuffers(device.device, &.{
+                    .command_pool = pool,
+                    .level = .primary,
+                    .command_buffer_count = @as(u32, @truncate(cmdbufs.len)),
+                }, cmdbufs.ptr);
+            }
         }
     }
 
     try swapchain.waitForAllFences(&device);
-}
-
-fn recordCommandBuffer(
-    device: *const Device,
-    cmdbuf: vk.CommandBuffer,
-    ray_tracing_pass: *const RaytracingPass,
-    swap_image: vk.Image,
-    extent: vk.Extent2D,
-    camera: Camera,
-    frame_count: u32,
-) !void {
-    try device.vkd.beginCommandBuffer(cmdbuf, &.{});
-
-    Image.imageSetLayout(
-        device,
-        cmdbuf,
-        swap_image,
-        .undefined,
-        .transfer_dst_optimal,
-    );
-
-    try ray_tracing_pass.record(
-        device,
-        swap_image,
-        extent,
-        cmdbuf,
-        camera,
-        frame_count,
-    );
-
-    Image.imageSetLayout(
-        device,
-        cmdbuf,
-        swap_image,
-        .transfer_dst_optimal,
-        .present_src_khr,
-    );
-
-
-    try device.vkd.endCommandBuffer(cmdbuf);
-}
-
-fn createCommandBuffers(
-    device: *const Device,
-    pool: vk.CommandPool,
-    swapchain: *const Swapchain,
-    allocator: std.mem.Allocator,
-) ![]vk.CommandBuffer {
-    const cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
-    errdefer allocator.free(cmdbufs);
-
-    try device.vkd.allocateCommandBuffers(device.device, &.{
-        .command_pool = pool,
-        .level = .primary,
-        .command_buffer_count = @as(u32, @truncate(cmdbufs.len)),
-    }, cmdbufs.ptr);
-
-    return cmdbufs;
-}
-
-fn destroyCommandBuffers(
-    device: *const Device,
-    pool: vk.CommandPool,
-    allocator: std.mem.Allocator,
-    cmdbufs: []vk.CommandBuffer,
-) void {
-    device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
-    allocator.free(cmdbufs);
 }

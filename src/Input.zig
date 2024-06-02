@@ -79,18 +79,18 @@ pub fn update(self: *Self) void {
     self.cursor_y = new_cursor_y;
 }
 
-pub fn isKeyPressed(self: *Self, key: Key) bool {
+pub fn isKeyPressed(self: *const Self, key: Key) bool {
     return glfw.glfwGetKey(self.window, @intFromEnum(key)) == glfw.GLFW_PRESS;
 }
 
-pub fn isKeyReleased(self: *Self, key: Key) bool {
+pub fn isKeyReleased(self: *const Self, key: Key) bool {
     return glfw.glfwGetKey(self.window, @intFromEnum(key)) == glfw.GLFW_RELEASE;
 }
 
-pub fn isMouseButtonPressed(self: *Self, button: MouseButton) bool {
+pub fn isMouseButtonPressed(self: *const Self, button: MouseButton) bool {
     return glfw.glfwGetMouseButton(self.window, @intFromEnum(button)) == glfw.GLFW_PRESS;
 }
 
-pub fn isMouseButtonReleased(self: *Self, button: MouseButton) bool {
+pub fn isMouseButtonReleased(self: *const Self, button: MouseButton) bool {
     return glfw.glfwGetMouseButton(self.window, @intFromEnum(button)) == glfw.GLFW_RELEASE;
 }
