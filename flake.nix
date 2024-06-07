@@ -1,16 +1,19 @@
 {
-  description = "Zig compiler development.";
+  description = "Zig Vulkan Pathtracer";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
     flake-utils.url = "github:numtide/flake-utils";
 
-    zig-overlay.url = "github:mitchellh/zig-overlay";
-    zig-overlay.inputs.nixpkgs.follows = "nixpkgs";
+    zig-overlay = {
+      url = "github:mitchellh/zig-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
-    zls.url = "github:zigtools/zls";
-    # zls.inputs.zig-overlay.follows = "zig-overlay";
-    zls.inputs.nixpkgs.follows = "nixpkgs";
+    zls = {
+      url = "github:zigtools/zls";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
