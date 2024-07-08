@@ -16,36 +16,38 @@
     };
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    zig-overlay,
-    zls,
-    ...
-  }:
+  outputs =
+    { self
+    , nixpkgs
+    , flake-utils
+    , zig-overlay
+    , zls
+    , ...
+    }:
     flake-utils.lib.eachDefaultSystem (
-      system: let
-        pkgs = import nixpkgs {inherit system;};
+      system:
+      let
+        pkgs = import nixpkgs { inherit system; };
         zigpkg = zig-overlay.packages.${system}.master;
         zlspkg = zls.packages.${system}.zls;
-      in {
+      in
+      {
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-              zigpkg
-              zlspkg
-              shaderc
-              glfw
-              vulkan-loader
-              vulkan-validation-layers
-              xorg.libxcb
-              xcb-util-cursor
-              glsl_analyzer
+            zigpkg
+            zlspkg
+            shaderc
+            vulkan-loader
+            vulkan-validation-layers
+            xorg.libxcb
+            xcb-util-cursor
+            glsl_analyzer
+            glfw
           ];
 
-          hardeningDisable = ["all"];
-          LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [pkgs.vulkan-loader]}";
-          VK_LAYER_PATH="${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
+          hardeningDisable = [ "all" ];
+          LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [pkgs.vulkan-loader]}";
+          VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
         };
 
         devShell = self.devShells.${system}.default;
