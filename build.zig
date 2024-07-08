@@ -51,6 +51,7 @@ pub fn build(b: *std.Build) !void {
         "",
         &.{
             "-DNK_IMPLEMENTATION",
+            "-DNK_INCLUDE_FIXED_TYPES",
             "-DNK_INCLUDE_DEFAULT_FONT",
             "-DNK_INCLUDE_FONT_BAKING",
             "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT",
