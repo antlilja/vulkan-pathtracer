@@ -67,9 +67,9 @@ pub fn init(
 
     const app_info = vk.ApplicationInfo{
         .p_application_name = name,
-        .application_version = vk.makeApiVersion(1, 0, 0, 0),
+        .application_version = vk.makeApiVersion(0, 1, 0, 0),
         .p_engine_name = name,
-        .engine_version = vk.makeApiVersion(1, 0, 0, 0),
+        .engine_version = vk.makeApiVersion(0, 1, 0, 0),
         .api_version = vk.API_VERSION_1_3,
     };
 
