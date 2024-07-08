@@ -86,13 +86,8 @@ pub fn main() !void {
     });
     defer window.destroy();
 
-    const vulkan_handle = std.c.dlopen("libvulkan.so.1", 2) orelse return error.FailedToLoadVulkan;
-    defer _ = std.c.dlclose(vulkan_handle);
-    const get_instance_proc_addr = std.c.dlsym(vulkan_handle, "vkGetInstanceProcAddr") orelse return error.FailedToLoadVulkan;
-
     var instance = try Instance.init(
         app_name,
-        @alignCast(@ptrCast(get_instance_proc_addr)),
         context.requiredVulkanInstanceExtensions(),
     );
     defer instance.deinit();
@@ -101,7 +96,7 @@ pub fn main() !void {
         vk.Instance,
         vk.SurfaceKHR,
         instance.instance,
-        @ptrCast(get_instance_proc_addr),
+        @ptrCast(instance.vkb.dispatch.vkGetInstanceProcAddr),
         null,
     );
     defer instance.vki.destroySurfaceKHR(

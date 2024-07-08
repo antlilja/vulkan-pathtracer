@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const vk = @import("vulkan");
 
 const Self = @This();
@@ -32,16 +33,35 @@ const InstanceDispatch = vk.InstanceWrapper(apis);
 
 const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
 
+vulkan_library: *anyopaque,
+
 vkb: BaseDispatch,
 vki: InstanceDispatch,
 instance: vk.Instance,
 
 pub fn init(
     name: [*:0]const u8,
-    get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
     required_extensions: []const [*:0]const u8,
 ) !Self {
     var self: Self = undefined;
+
+    self.vulkan_library = switch (builtin.target.os.tag) {
+        .linux => std.c.dlopen("libvulkan.so.1", 2),
+        .windows => blk: {
+            const load_library_fn = @extern(*const fn (name: [*:0]const u8) callconv(.C) ?*anyopaque, .{
+                .name = "LoadLibraryA",
+                .linkage = .strong,
+            });
+            break :blk load_library_fn("vulkan-1.dll");
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    } orelse return error.FailedToLoadVulkan;
+    errdefer self.freeLibrary();
+
+    const get_instance_proc_addr = self.loadFunction(
+        vk.PfnGetInstanceProcAddr,
+        "vkGetInstanceProcAddr",
+    );
 
     self.vkb = try BaseDispatch.load(get_instance_proc_addr);
 
@@ -69,4 +89,38 @@ pub fn init(
 
 pub fn deinit(self: *Self) void {
     self.vki.destroyInstance(self.instance, null);
+    self.freeLibrary();
+}
+
+fn freeLibrary(self: *const Self) void {
+    switch (builtin.os.tag) {
+        .linux => _ = std.c.dlclose(self.vulkan_library),
+        .windows => {
+            const free_library_fn = @extern(*const fn (hmodule: *anyopaque) callconv(.C) c_int, .{
+                .name = "FreeLibrary",
+            });
+            _ = free_library_fn(self.vulkan_library);
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    }
+}
+
+fn loadFunction(
+    self: *const Self,
+    comptime FnType: type,
+    name: [*:0]const u8,
+) FnType {
+    return @alignCast(@ptrCast(switch (builtin.target.os.tag) {
+        .linux => std.c.dlsym(self.vulkan_library, name),
+        .windows => blk: {
+            const get_proc_address_fn = @extern(
+                *const fn (hmodule: *anyopaque, name: [*:0]const u8) callconv(.C) ?*anyopaque,
+                .{
+                    .name = "GetProcAddress",
+                },
+            );
+            break :blk get_proc_address_fn(self.vulkan_library, name);
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    } orelse unreachable));
 }
