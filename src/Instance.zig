@@ -12,7 +12,6 @@ const apis: []const vk.ApiInfo = &.{.{
     .instance_commands = .{
         .destroyInstance = true,
         .createDevice = true,
-        .createXcbSurfaceKHR = true,
         .destroySurfaceKHR = true,
         .enumeratePhysicalDevices = true,
         .getPhysicalDeviceProperties = true,
