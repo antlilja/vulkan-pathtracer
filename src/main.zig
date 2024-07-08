@@ -347,14 +347,19 @@ pub fn main() !void {
             );
 
             if (prev_num_swap_images != swapchain.swap_images.len) {
-                device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
+                device.vkd.freeCommandBuffers(
+                    device.device,
+                    pool,
+                    @intCast(cmdbufs.len),
+                    cmdbufs.ptr,
+                );
                 allocator.free(cmdbufs);
 
                 cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
                 try device.vkd.allocateCommandBuffers(device.device, &.{
                     .command_pool = pool,
                     .level = .primary,
-                    .command_buffer_count = @as(u32, @truncate(cmdbufs.len)),
+                    .command_buffer_count = @intCast(cmdbufs.len),
                 }, cmdbufs.ptr);
             }
         }
