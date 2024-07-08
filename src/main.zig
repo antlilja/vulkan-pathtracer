@@ -1,7 +1,8 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const clap = @import("clap");
-const glfw = @import("glfw.zig");
+
+const zw = @import("zig-window");
 
 const Timer = @import("Timer.zig");
 const Input = @import("Input.zig");
@@ -68,41 +69,46 @@ pub fn main() !void {
         .height = res.args.@"resolution-y" orelse 1080,
     };
 
-    if (glfw.glfwInit() != glfw.GLFW_TRUE) return error.FailedToInitGLWF;
-    defer glfw.glfwTerminate();
+    const context = try zw.init(allocator);
+    defer context.deinit();
 
-    if (glfw.glfwVulkanSupported() != glfw.GLFW_TRUE) {
-        try std.io.getStdErr().writer().print("GLFW could not find vulkan", .{});
-        std.process.exit(1);
-    }
+    var input: Input = .{};
 
-    glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
-    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-    const window = glfw.glfwCreateWindow(
-        @intCast(extent.width),
-        @intCast(extent.height),
+    const window = try context.createWindow(.{
+        .name = app_name,
+        .width = extent.width,
+        .height = extent.height,
+        .resizable = false,
+        .event_handler = .{
+            .handle = @ptrCast(&input),
+            .handle_event_fn = @ptrCast(&Input.handleEvent),
+        },
+    });
+    defer window.destroy();
+
+    const vulkan_handle = std.c.dlopen("libvulkan.so.1", 2) orelse return error.FailedToLoadVulkan;
+    defer _ = std.c.dlclose(vulkan_handle);
+    const get_instance_proc_addr = std.c.dlsym(vulkan_handle, "vkGetInstanceProcAddr") orelse return error.FailedToLoadVulkan;
+
+    var instance = try Instance.init(
         app_name,
-        null,
-        null,
-    ) orelse return error.FailedToInitWindow;
-    defer glfw.glfwDestroyWindow(window);
-
-    var instance = try Instance.init(app_name);
+        @alignCast(@ptrCast(get_instance_proc_addr)),
+        context.requiredVulkanInstanceExtensions(),
+    );
     defer instance.deinit();
 
-    const surface = blk: {
-        var surface: vk.SurfaceKHR = undefined;
-        if (glfw.glfwCreateWindowSurface(
-            instance.instance,
-            window,
-            null,
-            &surface,
-        ) != .success) {
-            return error.FailedToInitSurface;
-        }
-        break :blk surface;
-    };
-    defer instance.vki.destroySurfaceKHR(instance.instance, surface, null);
+    const surface = try window.createVulkanSurface(
+        vk.Instance,
+        vk.SurfaceKHR,
+        instance.instance,
+        @ptrCast(get_instance_proc_addr),
+        null,
+    );
+    defer instance.vki.destroySurfaceKHR(
+        instance.instance,
+        surface,
+        null,
+    );
 
     const device = try Device.init(&instance, surface, allocator);
     defer device.deinit();
@@ -170,24 +176,22 @@ pub fn main() !void {
 
     var camera_update: bool = false;
 
-    var input = Input.init(window);
     var timer = Timer.start();
-    while (glfw.glfwWindowShouldClose(window) == glfw.GLFW_FALSE) {
+    while (window.isOpen()) {
         defer timer.lap();
         defer nuklear.clear();
 
-        var w: c_int = undefined;
-        var h: c_int = undefined;
-        glfw.glfwGetFramebufferSize(window, &w, &h);
-        glfw.glfwPollEvents();
+        context.pollEvents();
 
         input.update();
         nuklear.update(&input);
 
         const delta_time = timer.delta_time;
 
+        const width, const height = window.getSize();
+
         // Don't present or resize swapchain while the window is minimized
-        if (w == 0 or h == 0) continue;
+        if (width == 0 or height == 0) continue;
 
         // Camera movement
         if (!nuklear.isCapturingInput()) {
@@ -213,7 +217,7 @@ pub fn main() !void {
                 velocity = velocity.add(Vec3.new(0.0, delta_time, 0.0));
             }
 
-            if (input.isKeyPressed(.left_control)) {
+            if (input.isKeyPressed(.left_ctrl)) {
                 velocity = velocity.add(Vec3.new(0.0, -delta_time, 0.0));
             }
 
@@ -322,13 +326,13 @@ pub fn main() !void {
             else => |narrow| return narrow,
         };
 
-        if (state == .suboptimal or extent.width != @as(u32, @intCast(w)) or extent.height != @as(u32, @intCast(h))) {
+        if (state == .suboptimal or extent.width != width or extent.height != height) {
             try device.vkd.deviceWaitIdle(device.device);
 
             const prev_num_swap_images = swapchain.swap_images.len;
 
-            extent.width = @intCast(w);
-            extent.height = @intCast(h);
+            extent.width = width;
+            extent.height = height;
             try swapchain.recreate(
                 &instance,
                 &device,

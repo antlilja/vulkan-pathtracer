@@ -12,7 +12,15 @@ pub fn build(b: *std.Build) !void {
     const vk_generate_cmd = b.addRunArtifact(vk_gen);
     vk_generate_cmd.addFileArg(spec_path);
 
-    const clap_dep = b.dependency("clap", .{});
+    const zw_dep = b.dependency("zig-window", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const clap_dep = b.dependency("clap", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     const cgltf_lib = compileCHeaderOnlyLib(
         b,
@@ -59,11 +67,11 @@ pub fn build(b: *std.Build) !void {
     exe.root_module.addAnonymousImport("vulkan", .{
         .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
     });
+    exe.root_module.addImport("zig-window", zw_dep.module("zig-window"));
     exe.root_module.addImport("clap", clap_dep.module("clap"));
     exe.linkLibrary(cgltf_lib);
     exe.linkLibrary(stb_image_lib);
     exe.linkLibrary(nuklear_lib);
-    exe.linkSystemLibrary("glfw");
     b.installArtifact(exe);
 
     const shaders = ShaderCompileStep.create(

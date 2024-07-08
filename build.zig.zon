@@ -11,6 +11,10 @@
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.285.tar.gz",
             .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
         },
+        .@"zig-window" = .{
+            .url = "https://github.com/antlilja/zig-window/archive/a19382fe164bbab6eb54513a60193bd1b1d3015a.tar.gz",
+            .hash = "122063b66ba07c1a131ad2b8e849ad5ab4525761456e5faaff40c48925684779e282",
+        },
         .cgltf = .{
             .url = "https://github.com/jkuhlmann/cgltf/archive/de399881c65c438a635627c749440eeea7e05599.tar.gz",
             .hash = "12200fb887b4bf7b2d847f4f660f8ea59017e02f25aee081b8555b55011392f9068e",

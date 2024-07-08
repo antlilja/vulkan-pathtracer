@@ -1,13 +1,12 @@
 const std = @import("std");
 const vk = @import("vulkan");
 
-const glfw = @import("glfw.zig");
-
 const Self = @This();
 
 const apis: []const vk.ApiInfo = &.{.{
     .base_commands = .{
         .createInstance = true,
+        .getInstanceProcAddr = true,
     },
     .instance_commands = .{
         .destroyInstance = true,
@@ -37,13 +36,14 @@ vkb: BaseDispatch,
 vki: InstanceDispatch,
 instance: vk.Instance,
 
-pub fn init(name: [*:0]const u8) !Self {
+pub fn init(
+    name: [*:0]const u8,
+    get_instance_proc_addr: vk.PfnGetInstanceProcAddr,
+    required_extensions: []const [*:0]const u8,
+) !Self {
     var self: Self = undefined;
 
-    self.vkb = try BaseDispatch.load(glfw.glfwGetInstanceProcAddress);
-
-    var glfw_extensions_count: u32 = 0;
-    const glfw_extensions = glfw.glfwGetRequiredInstanceExtensions(&glfw_extensions_count);
+    self.vkb = try BaseDispatch.load(get_instance_proc_addr);
 
     const app_info = vk.ApplicationInfo{
         .p_application_name = name,
@@ -55,13 +55,13 @@ pub fn init(name: [*:0]const u8) !Self {
 
     self.instance = try self.vkb.createInstance(&.{
         .p_application_info = &app_info,
-        .enabled_extension_count = glfw_extensions_count,
-        .pp_enabled_extension_names = @ptrCast(glfw_extensions),
+        .enabled_extension_count = @intCast(required_extensions.len),
+        .pp_enabled_extension_names = required_extensions.ptr,
         .enabled_layer_count = validation_layers.len,
         .pp_enabled_layer_names = &validation_layers,
     }, null);
 
-    self.vki = try InstanceDispatch.load(self.instance, glfw.glfwGetInstanceProcAddress);
+    self.vki = try InstanceDispatch.load(self.instance, self.vkb.dispatch.vkGetInstanceProcAddr);
     errdefer self.vki.destroyInstance(self.instance, null);
 
     return self;
