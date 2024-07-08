@@ -14,79 +14,56 @@ pub fn build(b: *std.Build) !void {
 
     const clap_dep = b.dependency("clap", .{});
 
-    const cgltf_dep = b.dependency("cgltf", .{});
-    const cgltf_lib = blk: {
-        const cgltf_lib = b.addStaticLibrary(.{
-            .name = "cgltf",
-            .optimize = optimize,
-            .target = target,
-        });
-        const wf = b.addWriteFiles();
-        const cgltf_c = wf.addCopyFile(cgltf_dep.path("cgltf.h"), "cgltf.c");
-        cgltf_lib.addCSourceFile(.{
-            .file = cgltf_c,
-            .flags = &.{"-DCGLTF_IMPLEMENTATION"},
-        });
-        cgltf_lib.linkLibC();
-        break :blk cgltf_lib;
-    };
+    const cgltf_lib = compileCHeaderOnlyLib(
+        b,
+        target,
+        optimize,
+        "cgltf",
+        "cgltf.h",
+        "",
+        &.{"-DCGLTF_IMPLEMENTATION"},
+    );
 
-    const stb_dep = b.dependency("stb", .{});
-    const stb_image_lib = blk: {
-        const stb_image_lib = b.addStaticLibrary(.{
-            .name = "stb_image",
-            .optimize = optimize,
-            .target = target,
-        });
-        const wf = b.addWriteFiles();
-        const stb_c = wf.addCopyFile(stb_dep.path("stb_image.h"), "stb_image.c");
-        stb_image_lib.addCSourceFile(.{
-            .file = stb_c,
-            .flags = &.{"-DSTB_IMAGE_IMPLEMENTATION"},
-        });
-        stb_image_lib.linkLibC();
-        break :blk stb_image_lib;
-    };
+    const stb_image_lib = compileCHeaderOnlyLib(
+        b,
+        target,
+        optimize,
+        "stb",
+        "stb_image.h",
+        "",
+        &.{"-DSTB_IMAGE_IMPLEMENTATION"},
+    );
 
-    const nuklear_dep = b.dependency("nuklear", .{});
-    const nuklear_lib = blk: {
-        const nuklear_lib = b.addStaticLibrary(.{
-            .name = "nuklear",
-            .optimize = optimize,
-            .target = target,
-        });
-        const wf = b.addWriteFiles();
-        const nuklear_c = wf.addCopyFile(nuklear_dep.path("nuklear.h"), "nuklear.c");
-        nuklear_lib.addCSourceFile(.{
-            .file = nuklear_c,
-            .flags = &.{
-                "-DNK_IMPLEMENTATION",
-                "-DNK_INCLUDE_DEFAULT_FONT",
-                "-DNK_INCLUDE_FONT_BAKING",
-                "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT",
-            },
-        });
-        nuklear_lib.linkLibC();
-        break :blk nuklear_lib;
-    };
+    const nuklear_lib = compileCHeaderOnlyLib(
+        b,
+        target,
+        optimize,
+        "nuklear",
+        "nuklear.h",
+        "",
+        &.{
+            "-DNK_IMPLEMENTATION",
+            "-DNK_INCLUDE_DEFAULT_FONT",
+            "-DNK_INCLUDE_FONT_BAKING",
+            "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT",
+        },
+    );
 
     const exe = b.addExecutable(.{
         .name = "vulkan-pathtracer",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
     exe.root_module.addAnonymousImport("vulkan", .{
         .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
     });
     exe.root_module.addImport("clap", clap_dep.module("clap"));
-    exe.linkSystemLibrary("glfw");
     exe.linkLibrary(cgltf_lib);
-    exe.addIncludePath(cgltf_dep.path(""));
     exe.linkLibrary(stb_image_lib);
-    exe.addIncludePath(stb_dep.path(""));
     exe.linkLibrary(nuklear_lib);
-    exe.addIncludePath(nuklear_dep.path(""));
+    exe.linkSystemLibrary("glfw");
     b.installArtifact(exe);
 
     const shaders = ShaderCompileStep.create(
@@ -109,4 +86,36 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+}
+
+fn compileCHeaderOnlyLib(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    name: []const u8,
+    header_file_path: []const u8,
+    include_dir: []const u8,
+    flags: []const []const u8,
+) *std.Build.Step.Compile {
+    const dep = b.dependency(name, .{});
+    const lib = b.addStaticLibrary(.{
+        .name = name,
+        .optimize = optimize,
+        .target = target,
+        .link_libc = true,
+    });
+
+    const c_file_path = b.allocator.alloc(u8, header_file_path.len) catch unreachable;
+    _ = std.mem.replace(u8, header_file_path, ".h", ".c", c_file_path);
+
+    const wf = b.addWriteFiles();
+    const c_file = wf.addCopyFile(dep.path(header_file_path), c_file_path);
+    lib.addCSourceFile(.{
+        .file = c_file,
+        .flags = flags,
+    });
+
+    lib.installHeadersDirectory(dep.path(include_dir), include_dir, .{});
+
+    return lib;
 }
