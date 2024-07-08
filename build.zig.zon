@@ -15,6 +15,10 @@
             .url = "https://github.com/antlilja/zig-window/archive/a19382fe164bbab6eb54513a60193bd1b1d3015a.tar.gz",
             .hash = "122063b66ba07c1a131ad2b8e849ad5ab4525761456e5faaff40c48925684779e282",
         },
+        .glslang = .{
+            .url = "https://github.com/antlilja/zig-glslang/archive/f2ec40cefb3352370a3611bc0ffdf34d2f8bc554.tar.gz",
+            .hash = "1220473db4351c22eadc4bd9bc10b25a56e8c0fcd3790ece8fcdf77f7973b6d8e093",
+        },
         .cgltf = .{
             .url = "https://github.com/jkuhlmann/cgltf/archive/de399881c65c438a635627c749440eeea7e05599.tar.gz",
             .hash = "12200fb887b4bf7b2d847f4f660f8ea59017e02f25aee081b8555b55011392f9068e",
@@ -37,5 +41,6 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "ShaderCompilerStep.zig",
     },
 }

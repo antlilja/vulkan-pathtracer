@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const ShaderCompileStep = @import("vulkan-zig").ShaderCompileStep;
+const ShaderCompileStep = @import("ShaderCompileStep.zig");
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -74,9 +74,17 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibrary(nuklear_lib);
     b.installArtifact(exe);
 
+    const glslang = b.dependency("glslang", .{
+        .target = std.Build.resolveTargetQuery(b, .{
+            .cpu_model = .native,
+        }),
+        .optimize = .ReleaseSafe,
+    }).artifact("glslang");
+
     const shaders = ShaderCompileStep.create(
         b,
-        &[_][]const u8{ "glslc", "--target-env=vulkan1.2" },
+        glslang.getEmittedBin(),
+        &[_][]const u8{ "-V", "--target-env", "vulkan1.2" },
         "-o",
     );
     shaders.add("ray_gen", "src/shaders/ray_gen.rgen", .{});
@@ -85,6 +93,7 @@ pub fn build(b: *std.Build) !void {
     shaders.add("nuklear_vert", "src/shaders/nuklear.vert", .{});
     shaders.add("nuklear_frag", "src/shaders/nuklear.frag", .{});
     exe.root_module.addImport("shaders", shaders.getModule());
+    shaders.step.dependOn(&glslang.step);
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());

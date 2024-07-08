@@ -40,7 +40,6 @@
           nativeBuildInputs = with pkgs; [
             zigpkg
             zlspkg
-            shaderc
             vulkan-loader
             vulkan-validation-layers
             xorg.libxcb
