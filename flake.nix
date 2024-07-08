@@ -11,8 +11,12 @@
     };
 
     zls = {
-      url = "github:zigtools/zls";
-      inputs.nixpkgs.follows = "nixpkgs";
+      url = "github:zigtools/zls/0.13.0";
+      inputs = {
+        nixpkgs.follows = "nixpkgs";
+        flake-utils.follows = "flake-utils";
+        zig-overlay.follows = "zig-overlay";
+      };
     };
   };
 
@@ -28,7 +32,7 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
-        zigpkg = zig-overlay.packages.${system}.master;
+        zigpkg = zig-overlay.packages.${system}."0.13.0";
         zlspkg = zls.packages.${system}.zls;
       in
       {
