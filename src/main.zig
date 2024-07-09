@@ -89,6 +89,7 @@ pub fn main() !void {
     var instance = try Instance.init(
         app_name,
         context.requiredVulkanInstanceExtensions(),
+        allocator,
     );
     defer instance.deinit();
 

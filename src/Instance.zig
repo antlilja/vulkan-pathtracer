@@ -8,6 +8,7 @@ const apis: []const vk.ApiInfo = &.{.{
     .base_commands = .{
         .createInstance = true,
         .getInstanceProcAddr = true,
+        .enumerateInstanceLayerProperties = true,
     },
     .instance_commands = .{
         .destroyInstance = true,
@@ -41,6 +42,7 @@ instance: vk.Instance,
 pub fn init(
     name: [*:0]const u8,
     required_extensions: []const [*:0]const u8,
+    allocator: std.mem.Allocator,
 ) !Self {
     var self: Self = undefined;
 
@@ -72,12 +74,41 @@ pub fn init(
         .api_version = vk.API_VERSION_1_3,
     };
 
+    const supports_validation_layers = blk: {
+        var prop_count: u32 = undefined;
+        std.debug.assert(try self.vkb.enumerateInstanceLayerProperties(
+            &prop_count,
+            null,
+        ) == .success);
+
+        const props = try allocator.alloc(vk.LayerProperties, @intCast(prop_count));
+        defer allocator.free(props);
+        std.debug.assert(try self.vkb.enumerateInstanceLayerProperties(
+            &prop_count,
+            props.ptr,
+        ) == .success);
+
+        for (validation_layers) |layer| {
+            var found = false;
+            const layer_name = std.mem.span(layer);
+            for (props) |prop| loop: {
+                const prop_layer_name: [*:0]const u8 = @ptrCast(&prop.layer_name);
+                if (std.mem.eql(u8, std.mem.span(prop_layer_name), layer_name)) {
+                    found = true;
+                    break :loop;
+                }
+            }
+            if (!found) break :blk false;
+        }
+        break :blk true;
+    };
+
     self.instance = try self.vkb.createInstance(&.{
         .p_application_info = &app_info,
         .enabled_extension_count = @intCast(required_extensions.len),
         .pp_enabled_extension_names = required_extensions.ptr,
-        .enabled_layer_count = validation_layers.len,
-        .pp_enabled_layer_names = &validation_layers,
+        .enabled_layer_count = if (supports_validation_layers) validation_layers.len else 0,
+        .pp_enabled_layer_names = if (supports_validation_layers) &validation_layers else undefined,
     }, null);
 
     self.vki = try InstanceDispatch.load(self.instance, self.vkb.dispatch.vkGetInstanceProcAddr);
