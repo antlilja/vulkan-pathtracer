@@ -5,7 +5,7 @@ const Scene = @import("Scene.zig");
 const GraphicsContext = @import("GraphicsContext.zig");
 
 const Buffer = @import("Buffer.zig");
-const BLAS = @import("BLAS.zig");
+const Blas = @import("Blas.zig");
 
 const Self = @This();
 
@@ -16,7 +16,7 @@ address: vk.DeviceAddress,
 pub fn init(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
-    blases: []const BLAS,
+    blases: []const Blas,
     blas_instances: []const Scene.Instance,
     allocator: std.mem.Allocator,
 ) !Self {

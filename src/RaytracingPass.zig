@@ -9,8 +9,8 @@ const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
-const BLAS = @import("BLAS.zig");
-const TLAS = @import("TLAS.zig");
+const Blas = @import("Blas.zig");
+const Tlas = @import("Tlas.zig");
 
 const RayTracingPipeline = @import("RayTracingPipeline.zig");
 
@@ -24,8 +24,8 @@ const ObjDesc = struct {
     material_address: vk.DeviceAddress,
 };
 
-blases: []BLAS,
-tlas: TLAS,
+blases: []Blas,
+tlas: Tlas,
 albedos: []const Image,
 metal_roughness: []const Image,
 emissive: []const Image,
@@ -116,7 +116,7 @@ pub fn init(
         allocator.free(normals);
     }
 
-    const tlas = try TLAS.init(
+    const tlas = try Tlas.init(
         gc,
         pool,
         blases_and_buffer.blases,
@@ -229,7 +229,7 @@ fn createBlases(
     pool: vk.CommandPool,
     allocator: std.mem.Allocator,
 ) !struct {
-    blases: []BLAS,
+    blases: []Blas,
     buffer: Buffer,
     obj_descs: []const ObjDesc,
 } {
@@ -327,7 +327,7 @@ fn createBlases(
     );
 
     var blas_index: usize = 0;
-    const blases = try allocator.alloc(BLAS, scene.mesh_indices.len);
+    const blases = try allocator.alloc(Blas, scene.mesh_indices.len);
     errdefer {
         for (blases[0..blas_index]) |blas| {
             blas.deinit(gc);
@@ -350,7 +350,7 @@ fn createBlases(
             .uv_address = buffer_address + uvs_begin + mesh.vertex_start * @sizeOf([2]f32),
             .material_address = buffer_address + material_indices_begin + (mesh.index_start / 3) * @sizeOf(u32),
         };
-        blases[blas_index] = try BLAS.init(
+        blases[blas_index] = try Blas.init(
             gc,
             pool,
             buffer_address + positions_begin + mesh.vertex_start * @sizeOf([4]f32),

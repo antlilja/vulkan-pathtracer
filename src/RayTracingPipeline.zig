@@ -4,7 +4,7 @@ const shaders = @import("shaders");
 
 const GraphicsContext = @import("GraphicsContext.zig");
 
-const TLAS = @import("TLAS.zig");
+const Tlas = @import("Tlas.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
@@ -30,7 +30,7 @@ closest_hit_device_address: vk.DeviceAddress,
 
 pub fn init(
     gc: *const GraphicsContext,
-    tlas: *const TLAS,
+    tlas: *const Tlas,
     image_view: vk.ImageView,
     obj_desc_buffer: vk.Buffer,
     albedos: []const Image,
