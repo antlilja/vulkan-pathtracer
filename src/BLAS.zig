@@ -1,6 +1,7 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
+
+const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 
 const Self = @This();
@@ -10,7 +11,7 @@ buffer: Buffer,
 address: vk.DeviceAddress,
 
 pub fn init(
-    device: *const Device,
+    gc: *const GraphicsContext,
     pool: vk.CommandPool,
     position_address: vk.DeviceAddress,
     index_address: vk.DeviceAddress,
@@ -47,8 +48,7 @@ pub fn init(
         .update_scratch_size = 0,
         .build_scratch_size = 0,
     };
-    device.vkd.getAccelerationStructureBuildSizesKHR(
-        device.device,
+    gc.device.getAccelerationStructureBuildSizesKHR(
         .device_khr,
         &build_info,
         @ptrCast(&num_triangles),
@@ -56,39 +56,38 @@ pub fn init(
     );
 
     const buffer = try Buffer.init(
-        device,
+        gc,
         build_sizes.acceleration_structure_size,
         .{ .acceleration_structure_storage_bit_khr = true, .shader_device_address_bit = true },
         .{ .device_local_bit = true },
         .{ .device_address_bit = true },
     );
-    errdefer buffer.deinit(device);
+    errdefer buffer.deinit(gc);
 
-    const acceleration_structure = try device.vkd.createAccelerationStructureKHR(device.device, &.{
+    const acceleration_structure = try gc.device.createAccelerationStructureKHR(&.{
         .buffer = buffer.buffer,
         .offset = 0,
         .size = build_sizes.acceleration_structure_size,
         .type = .bottom_level_khr,
     }, null);
-    errdefer device.vkd.destroyAccelerationStructureKHR(
-        device.device,
+    errdefer gc.device.destroyAccelerationStructureKHR(
         acceleration_structure,
         null,
     );
 
-    const address = device.vkd.getAccelerationStructureDeviceAddressKHR(device.device, &.{
+    const address = gc.device.getAccelerationStructureDeviceAddressKHR(&.{
         .acceleration_structure = acceleration_structure,
     });
 
     const scratch_buffer = try Buffer.init(
-        device,
+        gc,
         build_sizes.build_scratch_size,
         .{ .storage_buffer_bit = true, .shader_device_address_bit = true },
         .{ .device_local_bit = true },
         .{ .device_address_bit = true },
     );
-    defer scratch_buffer.deinit(device);
-    const scratch_buffer_address = device.vkd.getBufferDeviceAddress(device.device, &.{ .buffer = scratch_buffer.buffer });
+    defer scratch_buffer.deinit(gc);
+    const scratch_buffer_address = gc.device.getBufferDeviceAddress(&.{ .buffer = scratch_buffer.buffer });
 
     build_info.dst_acceleration_structure = acceleration_structure;
     build_info.scratch_data = .{ .device_address = scratch_buffer_address };
@@ -101,14 +100,14 @@ pub fn init(
     };
 
     var cmdbuf: vk.CommandBuffer = undefined;
-    try device.vkd.allocateCommandBuffers(device.device, &.{
+    try gc.device.allocateCommandBuffers(&.{
         .command_pool = pool,
         .level = .primary,
         .command_buffer_count = 1,
     }, @ptrCast(&cmdbuf));
-    defer device.vkd.freeCommandBuffers(device.device, pool, 1, @ptrCast(&cmdbuf));
+    defer gc.device.freeCommandBuffers(pool, 1, @ptrCast(&cmdbuf));
 
-    try device.vkd.beginCommandBuffer(cmdbuf, &.{
+    try gc.device.beginCommandBuffer(cmdbuf, &.{
         .flags = .{ .one_time_submit_bit = true },
     });
 
@@ -116,21 +115,21 @@ pub fn init(
         @ptrCast(&build_range_info),
     };
 
-    device.vkd.cmdBuildAccelerationStructuresKHR(
+    gc.device.cmdBuildAccelerationStructuresKHR(
         cmdbuf,
         1,
         @ptrCast(&build_info),
         @ptrCast(&build_range_infos),
     );
-    try device.vkd.endCommandBuffer(cmdbuf);
+    try gc.device.endCommandBuffer(cmdbuf);
 
     const si = vk.SubmitInfo{
         .command_buffer_count = 1,
         .p_command_buffers = @ptrCast(&cmdbuf),
         .p_wait_dst_stage_mask = undefined,
     };
-    try device.vkd.queueSubmit(device.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
-    try device.vkd.queueWaitIdle(device.graphics_queue.handle);
+    try gc.device.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
+    try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 
     return .{
         .handle = acceleration_structure,
@@ -139,11 +138,10 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *const Self, device: *const Device) void {
-    device.vkd.destroyAccelerationStructureKHR(
-        device.device,
+pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
+    gc.device.destroyAccelerationStructureKHR(
         self.handle,
         null,
     );
-    self.buffer.deinit(device);
+    self.buffer.deinit(gc);
 }

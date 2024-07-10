@@ -4,8 +4,8 @@ const Scene = @import("Scene.zig");
 
 const Camera = @import("Camera.zig");
 
-const Instance = @import("Instance.zig");
-const Device = @import("Device.zig");
+const GraphicsContext = @import("GraphicsContext.zig");
+
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
@@ -37,8 +37,7 @@ storage_image: Image,
 pipeline: RayTracingPipeline,
 
 pub fn init(
-    instance: *const Instance,
-    device: *const Device,
+    gc: *const GraphicsContext,
     extent: vk.Extent2D,
     format: vk.Format,
     pool: vk.CommandPool,
@@ -51,85 +50,85 @@ pub fn init(
     defer scene.deinit(allocator);
 
     const blases_and_buffer = try createBlases(
-        device,
+        gc,
         &scene,
         pool,
         allocator,
     );
     errdefer {
         for (blases_and_buffer.blases) |blas| {
-            blas.deinit(device);
+            blas.deinit(gc);
         }
         allocator.free(blases_and_buffer.blases);
-        blases_and_buffer.buffer.deinit(device);
+        blases_and_buffer.buffer.deinit(gc);
     }
     defer allocator.free(blases_and_buffer.obj_descs);
 
     const albedos = try createTextures(
-        device,
+        gc,
         pool,
         scene.albedo_textures,
         allocator,
     );
     errdefer {
         for (albedos) |t| {
-            t.deinit(device);
+            t.deinit(gc);
         }
         allocator.free(albedos);
     }
 
     const metal_roughness = try createTextures(
-        device,
+        gc,
         pool,
         scene.metal_roughness_textures,
         allocator,
     );
     errdefer {
         for (metal_roughness) |t| {
-            t.deinit(device);
+            t.deinit(gc);
         }
         allocator.free(metal_roughness);
     }
 
     const emissive = try createTextures(
-        device,
+        gc,
         pool,
         scene.emissive_textures,
         allocator,
     );
     errdefer {
         for (emissive) |t| {
-            t.deinit(device);
+            t.deinit(gc);
         }
         allocator.free(emissive);
     }
 
     const normals = try createTextures(
-        device,
+        gc,
         pool,
         scene.normal_textures,
         allocator,
     );
     errdefer {
         for (normals) |t| {
-            t.deinit(device);
+            t.deinit(gc);
         }
         allocator.free(normals);
     }
 
     const tlas = try TLAS.init(
-        device,
+        gc,
         pool,
         blases_and_buffer.blases,
         scene.instances,
         allocator,
     );
-    errdefer tlas.deinit(device);
+    errdefer tlas.deinit(gc);
 
     const obj_descs = blases_and_buffer.obj_descs;
 
     const obj_desc_buffer = try Buffer.initAndUpload(
-        device,
+        gc,
         ObjDesc,
         obj_descs,
         .{
@@ -140,10 +139,10 @@ pub fn init(
         .{ .device_address_bit = true },
         pool,
     );
-    errdefer obj_desc_buffer.deinit(device);
+    errdefer obj_desc_buffer.deinit(gc);
 
     var storage_image = try Image.init(
-        device,
+        gc,
         extent,
         format,
         .{
@@ -155,12 +154,11 @@ pub fn init(
         .{ .device_local_bit = true },
         .{},
     );
-    errdefer storage_image.deinit(device);
-    try storage_image.transistionLayout(device, pool, .undefined, .general);
+    errdefer storage_image.deinit(gc);
+    try storage_image.transistionLayout(gc, pool, .undefined, .general);
 
     const pipeline = try RayTracingPipeline.init(
-        instance,
-        device,
+        gc,
         &tlas,
         storage_image.view,
         obj_desc_buffer.buffer,
@@ -172,7 +170,7 @@ pub fn init(
         num_bounces,
         allocator,
     );
-    errdefer pipeline.deinit(device);
+    errdefer pipeline.deinit(gc);
 
     return .{
         .blases = blases_and_buffer.blases,
@@ -189,44 +187,44 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *Self, device: *const Device, allocator: std.mem.Allocator) void {
-    self.pipeline.deinit(device);
-    self.storage_image.deinit(device);
+pub fn deinit(self: *Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) void {
+    self.pipeline.deinit(gc);
+    self.storage_image.deinit(gc);
 
-    self.obj_descs.deinit(device);
+    self.obj_descs.deinit(gc);
 
-    self.tlas.deinit(device);
+    self.tlas.deinit(gc);
 
     for (self.blases) |blas| {
-        blas.deinit(device);
+        blas.deinit(gc);
     }
     allocator.free(self.blases);
 
-    self.blas_buffer.deinit(device);
+    self.blas_buffer.deinit(gc);
 
     for (self.normals) |t| {
-        t.deinit(device);
+        t.deinit(gc);
     }
     allocator.free(self.normals);
 
     for (self.emissive) |t| {
-        t.deinit(device);
+        t.deinit(gc);
     }
     allocator.free(self.emissive);
 
     for (self.metal_roughness) |t| {
-        t.deinit(device);
+        t.deinit(gc);
     }
     allocator.free(self.metal_roughness);
 
     for (self.albedos) |t| {
-        t.deinit(device);
+        t.deinit(gc);
     }
     allocator.free(self.albedos);
 }
 
 fn createBlases(
-    device: *const Device,
+    gc: *const GraphicsContext,
     scene: *const Scene,
     pool: vk.CommandPool,
     allocator: std.mem.Allocator,
@@ -249,7 +247,7 @@ fn createBlases(
         indices_size;
 
     const staging_buffer = try Buffer.init(
-        device,
+        gc,
         total_size,
         .{ .transfer_src_bit = true },
         .{
@@ -258,7 +256,7 @@ fn createBlases(
         },
         .{},
     );
-    defer staging_buffer.deinit(device);
+    defer staging_buffer.deinit(gc);
 
     const positions_begin: usize = 0;
     const normals_begin: usize = positions_begin + positions_size;
@@ -268,14 +266,13 @@ fn createBlases(
     const indices_begin: usize = material_indices_begin + material_indices_size;
 
     {
-        const buffer_data: [*]u8 = @ptrCast(try device.vkd.mapMemory(
-            device.device,
+        const buffer_data: [*]u8 = @ptrCast(try gc.device.mapMemory(
             staging_buffer.memory,
             0,
             vk.WHOLE_SIZE,
             .{},
         ));
-        defer device.vkd.unmapMemory(device.device, staging_buffer.memory);
+        defer gc.device.unmapMemory(staging_buffer.memory);
 
         const buffer_positions: [*][4]f32 = @alignCast(@ptrCast(buffer_data));
         for (scene.positions, 0..) |pos, i| {
@@ -309,7 +306,7 @@ fn createBlases(
     }
 
     const gpu_buffer = try Buffer.init(
-        device,
+        gc,
         total_size,
         .{
             .acceleration_structure_build_input_read_only_bit_khr = true,
@@ -320,11 +317,11 @@ fn createBlases(
         .{ .device_local_bit = true },
         .{ .device_address_bit = true },
     );
-    errdefer gpu_buffer.deinit(device);
+    errdefer gpu_buffer.deinit(gc);
 
     try gpu_buffer.oneTimeCopyFrom(
         staging_buffer,
-        device,
+        gc,
         pool,
         total_size,
     );
@@ -333,13 +330,12 @@ fn createBlases(
     const blases = try allocator.alloc(BLAS, scene.mesh_indices.len);
     errdefer {
         for (blases[0..blas_index]) |blas| {
-            blas.deinit(device);
+            blas.deinit(gc);
         }
         allocator.free(blases);
     }
 
-    const buffer_address = device.vkd.getBufferDeviceAddress(
-        device.device,
+    const buffer_address = gc.device.getBufferDeviceAddress(
         &.{ .buffer = gpu_buffer.buffer },
     );
 
@@ -355,7 +351,7 @@ fn createBlases(
             .material_address = buffer_address + material_indices_begin + (mesh.index_start / 3) * @sizeOf(u32),
         };
         blases[blas_index] = try BLAS.init(
-            device,
+            gc,
             pool,
             buffer_address + positions_begin + mesh.vertex_start * @sizeOf([4]f32),
             buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
@@ -373,7 +369,7 @@ fn createBlases(
 }
 
 fn createTextures(
-    device: *const Device,
+    gc: *const GraphicsContext,
     pool: vk.CommandPool,
     materials: []const Scene.Material,
     allocator: std.mem.Allocator,
@@ -382,7 +378,7 @@ fn createTextures(
     const textures = try allocator.alloc(Image, materials.len);
     errdefer {
         for (0..texture_index) |i| {
-            textures[i].deinit(device);
+            textures[i].deinit(gc);
         }
         allocator.free(textures);
     }
@@ -391,7 +387,7 @@ fn createTextures(
         switch (material) {
             .texture => |t| {
                 texture.* = try Image.initAndUpload(
-                    device,
+                    gc,
                     t.data,
                     .{ .width = t.width, .height = t.height },
                     .r8g8b8a8_unorm,
@@ -416,7 +412,7 @@ fn createTextures(
                     break :blk (@as(u32, r) << 24) | (@as(u32, g) << 16) | (@as(u32, b) << 8) | @as(u32, a);
                 };
                 texture.* = try Image.initAndUpload(
-                    device,
+                    gc,
                     std.mem.asBytes(&color_u32),
                     .{ .width = 1, .height = 1 },
                     .r8g8b8a8_unorm,
@@ -441,7 +437,7 @@ fn createTextures(
 
 pub fn record(
     self: *const Self,
-    device: *const Device,
+    gc: *const GraphicsContext,
     dst_image: vk.Image,
     extent: vk.Extent2D,
     cmdbuf: vk.CommandBuffer,
@@ -478,8 +474,8 @@ pub fn record(
         .size = 0,
     };
 
-    device.vkd.cmdBindPipeline(cmdbuf, .ray_tracing_khr, self.pipeline.pipeline);
-    device.vkd.cmdBindDescriptorSets(
+    gc.device.cmdBindPipeline(cmdbuf, .ray_tracing_khr, self.pipeline.pipeline);
+    gc.device.cmdBindDescriptorSets(
         cmdbuf,
         .ray_tracing_khr,
         self.pipeline.pipeline_layout,
@@ -498,7 +494,7 @@ pub fn record(
         frame_count,
     };
 
-    device.vkd.cmdPushConstants(
+    gc.device.cmdPushConstants(
         cmdbuf,
         self.pipeline.pipeline_layout,
         .{ .raygen_bit_khr = true },
@@ -507,7 +503,7 @@ pub fn record(
         @ptrCast(&push_constants),
     );
 
-    device.vkd.cmdTraceRaysKHR(
+    gc.device.cmdTraceRaysKHR(
         cmdbuf,
         &ray_gen_shader_entry,
         &miss_shader_entry,
@@ -520,7 +516,7 @@ pub fn record(
 
     // Copy from storage image to destination image
     self.storage_image.setLayout(
-        device,
+        gc,
         cmdbuf,
         .general,
         .transfer_src_optimal,
@@ -547,7 +543,7 @@ pub fn record(
             .depth = 1,
         },
     };
-    device.vkd.cmdCopyImage(
+    gc.device.cmdCopyImage(
         cmdbuf,
         self.storage_image.image,
         .transfer_src_optimal,
@@ -558,7 +554,7 @@ pub fn record(
     );
 
     self.storage_image.setLayout(
-        device,
+        gc,
         cmdbuf,
         .transfer_src_optimal,
         .general,
@@ -567,14 +563,14 @@ pub fn record(
 
 pub fn resize(
     self: *Self,
-    device: *const Device,
+    gc: *const GraphicsContext,
     extent: vk.Extent2D,
     format: vk.Format,
     pool: vk.CommandPool,
 ) !void {
-    self.storage_image.deinit(device);
+    self.storage_image.deinit(gc);
     self.storage_image = try Image.init(
-        device,
+        gc,
         extent,
         format,
         .{
@@ -586,10 +582,10 @@ pub fn resize(
         .{ .device_local_bit = true },
         .{},
     );
-    try self.storage_image.transistionLayout(device, pool, .undefined, .general);
+    try self.storage_image.transistionLayout(gc, pool, .undefined, .general);
 
     self.pipeline.updateImageDescriptor(
-        device,
+        gc,
         self.storage_image.view,
     );
 }

@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
+const GraphicsContext = @import("GraphicsContext.zig");
 
 const Buffer = @import("Buffer.zig");
 
@@ -12,7 +12,7 @@ memory: vk.DeviceMemory,
 view: vk.ImageView,
 
 pub fn init(
-    device: *const Device,
+    gc: *const GraphicsContext,
     extent: vk.Extent2D,
     format: vk.Format,
     usage: vk.ImageUsageFlags,
@@ -21,7 +21,7 @@ pub fn init(
     memory_property_flags: vk.MemoryPropertyFlags,
     memory_allocate_flags: vk.MemoryAllocateFlags,
 ) !Self {
-    const image = try device.vkd.createImage(device.device, &.{
+    const image = try gc.device.createImage(&.{
         .image_type = .@"2d",
         .extent = .{
             .width = extent.width,
@@ -37,23 +37,23 @@ pub fn init(
         .sharing_mode = .exclusive,
         .tiling = tiling,
     }, null);
-    errdefer device.vkd.destroyImage(device.device, image, null);
+    errdefer gc.device.destroyImage(image, null);
 
     const memory_allocate_flags_info = vk.MemoryAllocateFlagsInfo{
         .flags = memory_allocate_flags,
         .device_mask = 0,
     };
 
-    const mem_reqs = device.vkd.getImageMemoryRequirements(device.device, image);
-    const memory = try device.vkd.allocateMemory(device.device, &.{
+    const mem_reqs = gc.device.getImageMemoryRequirements(image);
+    const memory = try gc.device.allocateMemory(&.{
         .p_next = @as(*const anyopaque, @ptrCast(&memory_allocate_flags_info)),
         .allocation_size = mem_reqs.size,
-        .memory_type_index = try device.findMemoryTypeIndex(mem_reqs.memory_type_bits, memory_property_flags),
+        .memory_type_index = try gc.findMemoryTypeIndex(mem_reqs.memory_type_bits, memory_property_flags),
     }, null);
-    errdefer device.vkd.freeMemory(device.device, memory, null);
-    try device.vkd.bindImageMemory(device.device, image, memory, 0);
+    errdefer gc.device.freeMemory(memory, null);
+    try gc.device.bindImageMemory(image, memory, 0);
 
-    const view = try device.vkd.createImageView(device.device, &.{
+    const view = try gc.device.createImageView(&.{
         .view_type = .@"2d",
         .format = format,
         .image = image,
@@ -71,7 +71,7 @@ pub fn init(
             .a = .a,
         },
     }, null);
-    errdefer device.vkd.destroyImageView(device.device, view, null);
+    errdefer gc.device.destroyImageView(view, null);
 
     return .{
         .image = image,
@@ -81,7 +81,7 @@ pub fn init(
 }
 
 pub fn initAndUpload(
-    device: *const Device,
+    gc: *const GraphicsContext,
     image_data: []const u8,
     extent: vk.Extent2D,
     format: vk.Format,
@@ -97,38 +97,38 @@ pub fn initAndUpload(
 
     // Upload data to staging_buffer
     const self = try Self.init(
-        device,
+        gc,
         extent,
         format,
-        usage,
+        usage_upload,
         tiling,
         initial_layout,
         memory_property_flags,
         memory_allocate_flags,
     );
-    errdefer self.deinit(device);
+    errdefer self.deinit(gc);
 
-    try self.transistionLayout(device, pool, .undefined, .transfer_dst_optimal);
+    try self.transistionLayout(gc, pool, .undefined, .transfer_dst_optimal);
 
     const staging_buffer = try Buffer.initAndStore(
-        device,
+        gc,
         u8,
         image_data,
         .{ .transfer_src_bit = true },
         .{ .host_visible_bit = true, .host_coherent_bit = true },
         .{},
     );
-    defer staging_buffer.deinit(device);
+    defer staging_buffer.deinit(gc);
 
     var cmdbuf: vk.CommandBuffer = undefined;
-    try device.vkd.allocateCommandBuffers(device.device, &.{
+    try gc.device.allocateCommandBuffers(&.{
         .command_pool = pool,
         .level = .primary,
         .command_buffer_count = 1,
     }, @ptrCast(&cmdbuf));
-    defer device.vkd.freeCommandBuffers(device.device, pool, 1, @ptrCast(&cmdbuf));
+    defer gc.device.freeCommandBuffers(pool, 1, @ptrCast(&cmdbuf));
 
-    try device.vkd.beginCommandBuffer(cmdbuf, &.{
+    try gc.device.beginCommandBuffer(cmdbuf, &.{
         .flags = .{ .one_time_submit_bit = true },
     });
 
@@ -152,7 +152,7 @@ pub fn initAndUpload(
         },
     };
 
-    device.vkd.cmdCopyBufferToImage(
+    gc.device.cmdCopyBufferToImage(
         cmdbuf,
         staging_buffer.buffer,
         self.image,
@@ -161,43 +161,43 @@ pub fn initAndUpload(
         @ptrCast(&region),
     );
 
-    try device.vkd.endCommandBuffer(cmdbuf);
+    try gc.device.endCommandBuffer(cmdbuf);
 
     const si = vk.SubmitInfo{
         .command_buffer_count = 1,
         .p_command_buffers = @ptrCast(&cmdbuf),
         .p_wait_dst_stage_mask = undefined,
     };
-    try device.vkd.queueSubmit(device.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
-    try device.vkd.queueWaitIdle(device.graphics_queue.handle);
+    try gc.device.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
+    try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 
-    try self.transistionLayout(device, pool, .transfer_dst_optimal, .shader_read_only_optimal);
+    try self.transistionLayout(gc, pool, .transfer_dst_optimal, .shader_read_only_optimal);
 
     return self;
 }
 
-pub fn deinit(self: *const Self, device: *const Device) void {
-    device.vkd.destroyImageView(device.device, self.view, null);
-    device.vkd.destroyImage(device.device, self.image, null);
-    device.vkd.freeMemory(device.device, self.memory, null);
+pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
+    gc.device.destroyImageView(self.view, null);
+    gc.device.destroyImage(self.image, null);
+    gc.device.freeMemory(self.memory, null);
 }
 
 pub fn transistionLayout(
     self: *const Self,
-    device: *const Device,
+    gc: *const GraphicsContext,
     pool: vk.CommandPool,
     from: vk.ImageLayout,
     to: vk.ImageLayout,
 ) !void {
     var cmdbuf: vk.CommandBuffer = undefined;
-    try device.vkd.allocateCommandBuffers(device.device, &.{
+    try gc.device.allocateCommandBuffers(&.{
         .command_pool = pool,
         .level = .primary,
         .command_buffer_count = 1,
     }, @as([*]vk.CommandBuffer, @ptrCast(&cmdbuf)));
-    defer device.vkd.freeCommandBuffers(device.device, pool, 1, @ptrCast(&cmdbuf));
+    defer gc.device.freeCommandBuffers(pool, 1, @ptrCast(&cmdbuf));
 
-    try device.vkd.beginCommandBuffer(cmdbuf, &.{
+    try gc.device.beginCommandBuffer(cmdbuf, &.{
         .flags = .{ .one_time_submit_bit = true },
     });
 
@@ -218,7 +218,7 @@ pub fn transistionLayout(
         },
     };
 
-    device.vkd.cmdPipelineBarrier(
+    gc.device.cmdPipelineBarrier(
         cmdbuf,
         .{ .top_of_pipe_bit = true },
         .{ .bottom_of_pipe_bit = true },
@@ -231,26 +231,26 @@ pub fn transistionLayout(
         @ptrCast(&barrier),
     );
 
-    try device.vkd.endCommandBuffer(cmdbuf);
+    try gc.device.endCommandBuffer(cmdbuf);
 
     const si = vk.SubmitInfo{
         .command_buffer_count = 1,
         .p_command_buffers = @ptrCast(&cmdbuf),
         .p_wait_dst_stage_mask = undefined,
     };
-    try device.vkd.queueSubmit(device.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
-    try device.vkd.queueWaitIdle(device.graphics_queue.handle);
+    try gc.device.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
+    try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 }
 
 pub fn setLayout(
     self: *const Self,
-    device: *const Device,
+    gc: *const GraphicsContext,
     cmdbuf: vk.CommandBuffer,
     old_layout: vk.ImageLayout,
     new_layout: vk.ImageLayout,
 ) void {
     imageSetLayout(
-        device,
+        gc,
         cmdbuf,
         self.image,
         old_layout,
@@ -259,7 +259,7 @@ pub fn setLayout(
 }
 
 pub fn imageSetLayout(
-    device: *const Device,
+    gc: *const GraphicsContext,
     cmdbuf: vk.CommandBuffer,
     image: vk.Image,
     old_layout: vk.ImageLayout,
@@ -282,7 +282,7 @@ pub fn imageSetLayout(
         },
     };
 
-    device.vkd.cmdPipelineBarrier(
+    gc.device.cmdPipelineBarrier(
         cmdbuf,
         pipelineStageForLayout(old_layout),
         pipelineStageForLayout(new_layout),

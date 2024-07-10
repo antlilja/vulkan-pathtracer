@@ -2,8 +2,8 @@ const std = @import("std");
 const vk = @import("vulkan");
 const shaders = @import("shaders");
 
-const Instance = @import("Instance.zig");
-const Device = @import("Device.zig");
+const GraphicsContext = @import("GraphicsContext.zig");
+
 const TLAS = @import("TLAS.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
@@ -29,8 +29,7 @@ miss_device_address: vk.DeviceAddress,
 closest_hit_device_address: vk.DeviceAddress,
 
 pub fn init(
-    instance: *const Instance,
-    device: *const Device,
+    gc: *const GraphicsContext,
     tlas: *const TLAS,
     image_view: vk.ImageView,
     obj_desc_buffer: vk.Buffer,
@@ -42,7 +41,7 @@ pub fn init(
     num_bounces: u32,
     allocator: std.mem.Allocator,
 ) !Self {
-    const sampler = try device.vkd.createSampler(device.device, &.{
+    const sampler = try gc.device.createSampler(&.{
         .mag_filter = .linear,
         .min_filter = .linear,
         .address_mode_u = .repeat,
@@ -59,7 +58,7 @@ pub fn init(
         .min_lod = 0.0,
         .max_lod = 0.0,
     }, null);
-    errdefer device.vkd.destroySampler(device.device, sampler, null);
+    errdefer gc.device.destroySampler(sampler, null);
 
     const pool_sizes = [_]vk.DescriptorPoolSize{
         .{ .type = .acceleration_structure_khr, .descriptor_count = 1 },
@@ -68,12 +67,12 @@ pub fn init(
         .{ .type = .combined_image_sampler, .descriptor_count = 4 },
     };
 
-    const descriptor_pool = try device.vkd.createDescriptorPool(device.device, &.{
+    const descriptor_pool = try gc.device.createDescriptorPool(&.{
         .max_sets = 1,
         .pool_size_count = pool_sizes.len,
         .p_pool_sizes = @as([*]const vk.DescriptorPoolSize, @ptrCast(&pool_sizes)),
     }, null);
-    errdefer device.vkd.destroyDescriptorPool(device.device, descriptor_pool, null);
+    errdefer gc.device.destroyDescriptorPool(descriptor_pool, null);
 
     const bindings = [_]vk.DescriptorSetLayoutBinding{
         .{
@@ -120,14 +119,14 @@ pub fn init(
         },
     };
 
-    const descriptor_set_layout = try device.vkd.createDescriptorSetLayout(device.device, &.{
+    const descriptor_set_layout = try gc.device.createDescriptorSetLayout(&.{
         .binding_count = bindings.len,
         .p_bindings = @as([*]const vk.DescriptorSetLayoutBinding, @ptrCast(&bindings)),
     }, null);
-    errdefer device.vkd.destroyDescriptorSetLayout(device.device, descriptor_set_layout, null);
+    errdefer gc.device.destroyDescriptorSetLayout(descriptor_set_layout, null);
 
     var descriptor_set: vk.DescriptorSet = undefined;
-    try device.vkd.allocateDescriptorSets(device.device, &.{
+    try gc.device.allocateDescriptorSets(&.{
         .descriptor_pool = descriptor_pool,
         .descriptor_set_count = 1,
         .p_set_layouts = @as([*]const vk.DescriptorSetLayout, @ptrCast(&descriptor_set_layout)),
@@ -269,8 +268,7 @@ pub fn init(
             },
         };
 
-        device.vkd.updateDescriptorSets(
-            device.device,
+        gc.device.updateDescriptorSets(
             write_descriptors.len,
             &write_descriptors,
             0,
@@ -283,32 +281,32 @@ pub fn init(
         .offset = 0,
         .size = 128,
     };
-    const pipeline_layout = try device.vkd.createPipelineLayout(device.device, &.{
+    const pipeline_layout = try gc.device.createPipelineLayout(&.{
         .flags = .{},
         .set_layout_count = 1,
         .p_set_layouts = @as([*]const vk.DescriptorSetLayout, @ptrCast(&descriptor_set_layout)),
         .push_constant_range_count = 1,
         .p_push_constant_ranges = @as([*]const vk.PushConstantRange, @ptrCast(&push_constant_range)),
     }, null);
-    errdefer device.vkd.destroyPipelineLayout(device.device, pipeline_layout, null);
+    errdefer gc.device.destroyPipelineLayout(pipeline_layout, null);
 
-    const ray_gen = try device.vkd.createShaderModule(device.device, &.{
+    const ray_gen = try gc.device.createShaderModule(&.{
         .code_size = shaders.ray_gen.len,
         .p_code = @as([*]const u32, @ptrCast(&shaders.ray_gen)),
     }, null);
-    defer device.vkd.destroyShaderModule(device.device, ray_gen, null);
+    defer gc.device.destroyShaderModule(ray_gen, null);
 
-    const miss = try device.vkd.createShaderModule(device.device, &.{
+    const miss = try gc.device.createShaderModule(&.{
         .code_size = shaders.miss.len,
         .p_code = @as([*]const u32, @ptrCast(&shaders.miss)),
     }, null);
-    defer device.vkd.destroyShaderModule(device.device, miss, null);
+    defer gc.device.destroyShaderModule(miss, null);
 
-    const closest_hit = try device.vkd.createShaderModule(device.device, &.{
+    const closest_hit = try gc.device.createShaderModule(&.{
         .code_size = shaders.closest_hit.len,
         .p_code = @as([*]const u32, @ptrCast(&shaders.closest_hit)),
     }, null);
-    defer device.vkd.destroyShaderModule(device.device, closest_hit, null);
+    defer gc.device.destroyShaderModule(closest_hit, null);
 
     const shader_groups = [_]vk.RayTracingShaderGroupCreateInfoKHR{
         .{
@@ -381,8 +379,7 @@ pub fn init(
     };
 
     var pipeline: vk.Pipeline = undefined;
-    _ = try device.vkd.createRayTracingPipelinesKHR(
-        device.device,
+    _ = try gc.device.createRayTracingPipelinesKHR(
         .null_handle,
         .null_handle,
         1,
@@ -407,7 +404,7 @@ pub fn init(
             .properties = undefined,
         };
 
-        instance.vki.getPhysicalDeviceProperties2(device.physical_device, &physical_device_properties2);
+        gc.instance.getPhysicalDeviceProperties2(gc.physical_device, &physical_device_properties2);
     }
 
     const handle_size = ray_tracing_pipeline_properties.shader_group_handle_size;
@@ -420,8 +417,7 @@ pub fn init(
     const handle_storage = try allocator.alloc(u8, handle_size_aligned * shader_groups.len);
     defer allocator.free(handle_storage);
 
-    try device.vkd.getRayTracingShaderGroupHandlesKHR(
-        device.device,
+    try gc.device.getRayTracingShaderGroupHandlesKHR(
         pipeline,
         0,
         shader_groups.len,
@@ -430,7 +426,7 @@ pub fn init(
     );
 
     const ray_gen_binding_table = try Buffer.initAndStore(
-        device,
+        gc,
         u8,
         handle_storage[0..handle_size],
         .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
@@ -439,7 +435,7 @@ pub fn init(
     );
 
     const miss_binding_table = try Buffer.initAndStore(
-        device,
+        gc,
         u8,
         handle_storage[handle_size_aligned..(handle_size_aligned + handle_size)],
         .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
@@ -448,7 +444,7 @@ pub fn init(
     );
 
     const closest_hit_binding_table = try Buffer.initAndStore(
-        device,
+        gc,
         u8,
         handle_storage[(handle_size_aligned * 2)..(handle_size_aligned * 2 + handle_size)],
         .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
@@ -456,9 +452,9 @@ pub fn init(
         .{ .device_address_bit = true },
     );
 
-    const ray_gen_device_address = device.vkd.getBufferDeviceAddress(device.device, &.{ .buffer = ray_gen_binding_table.buffer });
-    const miss_device_address = device.vkd.getBufferDeviceAddress(device.device, &.{ .buffer = miss_binding_table.buffer });
-    const closest_hit_device_address = device.vkd.getBufferDeviceAddress(device.device, &.{ .buffer = closest_hit_binding_table.buffer });
+    const ray_gen_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = ray_gen_binding_table.buffer });
+    const miss_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = miss_binding_table.buffer });
+    const closest_hit_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = closest_hit_binding_table.buffer });
 
     return .{
         .sampler = sampler,
@@ -478,18 +474,18 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *const Self, device: *const Device) void {
-    self.closest_hit_binding_table.deinit(device);
-    self.miss_binding_table.deinit(device);
-    self.ray_gen_binding_table.deinit(device);
-    device.vkd.destroyPipeline(device.device, self.pipeline, null);
-    device.vkd.destroyPipelineLayout(device.device, self.pipeline_layout, null);
-    device.vkd.destroyDescriptorSetLayout(device.device, self.descriptor_set_layout, null);
-    device.vkd.destroyDescriptorPool(device.device, self.descriptor_pool, null);
-    device.vkd.destroySampler(device.device, self.sampler, null);
+pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
+    self.closest_hit_binding_table.deinit(gc);
+    self.miss_binding_table.deinit(gc);
+    self.ray_gen_binding_table.deinit(gc);
+    gc.device.destroyPipeline(self.pipeline, null);
+    gc.device.destroyPipelineLayout(self.pipeline_layout, null);
+    gc.device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
+    gc.device.destroyDescriptorPool(self.descriptor_pool, null);
+    gc.device.destroySampler(self.sampler, null);
 }
 
-pub fn updateImageDescriptor(self: *const Self, device: *const Device, image_view: vk.ImageView) void {
+pub fn updateImageDescriptor(self: *const Self, gc: *const GraphicsContext, image_view: vk.ImageView) void {
     const image_descriptor_info = vk.DescriptorImageInfo{
         .sampler = .null_handle,
         .image_view = image_view,
@@ -508,8 +504,7 @@ pub fn updateImageDescriptor(self: *const Self, device: *const Device, image_vie
     };
     const write_descriptors = [_]vk.WriteDescriptorSet{image_write};
 
-    device.vkd.updateDescriptorSets(
-        device.device,
+    gc.device.updateDescriptorSets(
         write_descriptors.len,
         &write_descriptors,
         0,

@@ -10,8 +10,7 @@ const Nuklear = @import("Nuklear.zig");
 
 const Vec3 = @import("Vec3.zig");
 
-const Instance = @import("Instance.zig");
-const Device = @import("Device.zig");
+const GraphicsContext = @import("GraphicsContext.zig");
 const Swapchain = @import("Swapchain.zig");
 const Image = @import("Image.zig");
 
@@ -86,49 +85,42 @@ pub fn main() !void {
     });
     defer window.destroy();
 
-    var instance = try Instance.init(
-        app_name,
-        zw.requiredVulkanInstanceExtensions(),
+    const gc = try GraphicsContext.init(
         allocator,
+        "vulkan-pathtracer",
+        zw.requiredVulkanInstanceExtensions(),
+        &.{
+            vk.extensions.khr_ray_tracing_pipeline.name,
+            vk.extensions.khr_spirv_1_4.name,
+            vk.extensions.khr_shader_float_controls.name,
+            vk.extensions.khr_acceleration_structure.name,
+            vk.extensions.khr_buffer_device_address.name,
+            vk.extensions.ext_descriptor_indexing.name,
+            vk.extensions.khr_deferred_host_operations.name,
+            vk.extensions.khr_dynamic_rendering.name,
+        },
+        window,
     );
-    defer instance.deinit();
-
-    const surface = try window.createVulkanSurface(
-        vk.Instance,
-        vk.SurfaceKHR,
-        instance.instance,
-        @ptrCast(instance.vkb.dispatch.vkGetInstanceProcAddr),
-        null,
-    );
-    defer instance.vki.destroySurfaceKHR(
-        instance.instance,
-        surface,
-        null,
-    );
-
-    const device = try Device.init(&instance, surface, allocator);
-    defer device.deinit();
+    defer gc.deinit();
 
     var swapchain = try Swapchain.init(
-        &instance,
-        &device,
-        surface,
+        &gc,
         allocator,
         extent,
     );
-    defer swapchain.deinit(&device, allocator);
+    defer swapchain.deinit(&gc, allocator);
 
-    const pool = try device.vkd.createCommandPool(device.device, &.{
-        .queue_family_index = device.graphics_queue.family,
+    const pool = try gc.device.createCommandPool(&.{
+        .queue_family_index = gc.graphics_queue.family,
         .flags = .{ .reset_command_buffer_bit = true },
     }, null);
-    defer device.vkd.destroyCommandPool(device.device, pool, null);
+    defer gc.device.destroyCommandPool(pool, null);
 
     var nuklear = try Nuklear.init(allocator);
     defer nuklear.deinit(allocator);
 
     var nuklear_pass = try NuklearPass.init(
-        &device,
+        &gc,
         swapchain.surface_format.format,
         pool,
         1024 * 512,
@@ -136,11 +128,10 @@ pub fn main() !void {
         &nuklear,
         allocator,
     );
-    defer nuklear_pass.deinit(&device, allocator);
+    defer nuklear_pass.deinit(&gc, allocator);
 
     var raytracing_pass = try RaytracingPass.init(
-        &instance,
-        &device,
+        &gc,
         swapchain.extent,
         swapchain.surface_format.format,
         pool,
@@ -149,16 +140,16 @@ pub fn main() !void {
         num_samples,
         num_bounces,
     );
-    defer raytracing_pass.deinit(&device, allocator);
+    defer raytracing_pass.deinit(&gc, allocator);
 
     var cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
-    try device.vkd.allocateCommandBuffers(device.device, &.{
+    try gc.device.allocateCommandBuffers(&.{
         .command_pool = pool,
         .level = .primary,
         .command_buffer_count = @as(u32, @truncate(cmdbufs.len)),
     }, cmdbufs.ptr);
     defer {
-        device.vkd.freeCommandBuffers(device.device, pool, @truncate(cmdbufs.len), cmdbufs.ptr);
+        gc.device.freeCommandBuffers(pool, @truncate(cmdbufs.len), cmdbufs.ptr);
         allocator.free(cmdbufs);
     }
 
@@ -273,16 +264,16 @@ pub fn main() !void {
         nuklear.end();
 
         const cmdbuf = cmdbufs[swapchain.image_index];
-        try swapchain.currentSwapImage().waitForFence(&device);
+        try swapchain.currentSwapImage().waitForFence(&gc);
 
         {
             const swap_image = swapchain.currentSwapImage().image;
             const swap_image_view = swapchain.currentSwapImage().view;
 
-            try device.vkd.beginCommandBuffer(cmdbuf, &.{});
+            try gc.device.beginCommandBuffer(cmdbuf, &.{});
 
             Image.imageSetLayout(
-                &device,
+                &gc,
                 cmdbuf,
                 swap_image,
                 .undefined,
@@ -290,7 +281,7 @@ pub fn main() !void {
             );
 
             try raytracing_pass.record(
-                &device,
+                &gc,
                 swap_image,
                 extent,
                 cmdbuf,
@@ -299,7 +290,7 @@ pub fn main() !void {
             );
 
             Image.imageSetLayout(
-                &device,
+                &gc,
                 cmdbuf,
                 swap_image,
                 .transfer_dst_optimal,
@@ -307,32 +298,30 @@ pub fn main() !void {
             );
 
             try nuklear_pass.record(
-                &device,
+                &gc,
                 cmdbuf,
                 swap_image_view,
                 extent,
                 &nuklear,
             );
 
-            try device.vkd.endCommandBuffer(cmdbuf);
+            try gc.device.endCommandBuffer(cmdbuf);
         }
 
-        const state = swapchain.present(&device, cmdbuf) catch |err| switch (err) {
+        const state = swapchain.present(&gc, cmdbuf) catch |err| switch (err) {
             error.OutOfDateKHR => Swapchain.PresentState.suboptimal,
             else => |narrow| return narrow,
         };
 
         if (state == .suboptimal or extent.width != width or extent.height != height) {
-            try device.vkd.deviceWaitIdle(device.device);
+            try gc.device.deviceWaitIdle();
 
             const prev_num_swap_images = swapchain.swap_images.len;
 
             extent.width = width;
             extent.height = height;
             try swapchain.recreate(
-                &instance,
-                &device,
-                surface,
+                &gc,
                 allocator,
                 extent,
             );
@@ -340,15 +329,14 @@ pub fn main() !void {
             camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
 
             try raytracing_pass.resize(
-                &device,
+                &gc,
                 swapchain.extent,
                 swapchain.surface_format.format,
                 pool,
             );
 
             if (prev_num_swap_images != swapchain.swap_images.len) {
-                device.vkd.freeCommandBuffers(
-                    device.device,
+                gc.device.freeCommandBuffers(
                     pool,
                     @intCast(cmdbufs.len),
                     cmdbufs.ptr,
@@ -356,7 +344,7 @@ pub fn main() !void {
                 allocator.free(cmdbufs);
 
                 cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
-                try device.vkd.allocateCommandBuffers(device.device, &.{
+                try gc.device.allocateCommandBuffers(&.{
                     .command_pool = pool,
                     .level = .primary,
                     .command_buffer_count = @intCast(cmdbufs.len),
@@ -365,5 +353,5 @@ pub fn main() !void {
         }
     }
 
-    try swapchain.waitForAllFences(&device);
+    try swapchain.waitForAllFences(&gc);
 }

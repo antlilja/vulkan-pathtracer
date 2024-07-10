@@ -5,7 +5,7 @@ const nk = Nuklear.nk;
 
 const shaders = @import("shaders");
 
-const Device = @import("Device.zig");
+const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
@@ -64,7 +64,7 @@ max_vertex_buffer_size: u32,
 max_index_buffer_size: u32,
 
 pub fn init(
-    device: *const Device,
+    gc: *const GraphicsContext,
     format: vk.Format,
     pool: vk.CommandPool,
     max_vertex_buffer_size: u32,
@@ -75,7 +75,7 @@ pub fn init(
     const textures = blk: {
         const data: u32 = 0xffffffff;
         const null_image = try Image.initAndUpload(
-            device,
+            gc,
             std.mem.asBytes(&data),
             .{
                 .width = 1,
@@ -92,10 +92,10 @@ pub fn init(
             .{},
             pool,
         );
-        errdefer null_image.deinit(device);
+        errdefer null_image.deinit(gc);
 
         const font_image = try Image.initAndUpload(
-            device,
+            gc,
             nuklear.font_atlas_data,
             .{
                 .width = nuklear.font_atlas_width,
@@ -112,7 +112,7 @@ pub fn init(
             .{},
             pool,
         );
-        errdefer font_image.deinit(device);
+        errdefer font_image.deinit(gc);
 
         const textures = try allocator.alloc(Image, 2);
         textures[0] = null_image;
@@ -122,11 +122,11 @@ pub fn init(
     };
     errdefer {
         for (textures) |texture| {
-            texture.deinit(device);
+            texture.deinit(gc);
         }
     }
 
-    const sampler = try device.vkd.createSampler(device.device, &.{
+    const sampler = try gc.device.createSampler(&.{
         .mag_filter = .linear,
         .min_filter = .linear,
         .address_mode_u = .repeat,
@@ -143,21 +143,20 @@ pub fn init(
         .min_lod = 0.0,
         .max_lod = 0.0,
     }, null);
-    errdefer device.vkd.destroySampler(device.device, sampler, null);
+    errdefer gc.device.destroySampler(sampler, null);
 
     const descriptor_pool = blk: {
         const pool_sizes = [_]vk.DescriptorPoolSize{
             .{ .type = .combined_image_sampler, .descriptor_count = @intCast(textures.len) },
         };
 
-        break :blk try device.vkd.createDescriptorPool(device.device, &.{
+        break :blk try gc.device.createDescriptorPool(&.{
             .max_sets = @intCast(textures.len),
             .pool_size_count = pool_sizes.len,
             .p_pool_sizes = @as([*]const vk.DescriptorPoolSize, @ptrCast(&pool_sizes)),
         }, null);
     };
-    errdefer device.vkd.destroyDescriptorPool(
-        device.device,
+    errdefer gc.device.destroyDescriptorPool(
         descriptor_pool,
         null,
     );
@@ -172,13 +171,12 @@ pub fn init(
             },
         };
 
-        break :blk try device.vkd.createDescriptorSetLayout(device.device, &.{
+        break :blk try gc.device.createDescriptorSetLayout(&.{
             .binding_count = bindings.len,
             .p_bindings = @as([*]const vk.DescriptorSetLayoutBinding, @ptrCast(&bindings)),
         }, null);
     };
-    errdefer device.vkd.destroyDescriptorSetLayout(
-        device.device,
+    errdefer gc.device.destroyDescriptorSetLayout(
         descriptor_set_layout,
         null,
     );
@@ -192,7 +190,7 @@ pub fn init(
             layout.* = descriptor_set_layout;
         }
 
-        try device.vkd.allocateDescriptorSets(device.device, &.{
+        try gc.device.allocateDescriptorSets(&.{
             .descriptor_pool = descriptor_pool,
             .descriptor_set_count = @intCast(descriptor_sets.len),
             .p_set_layouts = descriptor_set_layouts.ptr,
@@ -226,8 +224,7 @@ pub fn init(
             };
         }
 
-        device.vkd.updateDescriptorSets(
-            device.device,
+        gc.device.updateDescriptorSets(
             @intCast(write_descriptors.len),
             write_descriptors.ptr,
             0,
@@ -242,26 +239,26 @@ pub fn init(
             .size = 64,
         };
 
-        const pipeline_layout = try device.vkd.createPipelineLayout(device.device, &.{
+        const pipeline_layout = try gc.device.createPipelineLayout(&.{
             .flags = .{},
             .set_layout_count = 1,
             .p_set_layouts = @ptrCast(&descriptor_set_layout),
             .push_constant_range_count = 1,
             .p_push_constant_ranges = @ptrCast(&push_constant_range),
         }, null);
-        errdefer device.vkd.destroyPipelineLayout(device.device, pipeline_layout, null);
+        errdefer gc.device.destroyPipelineLayout(pipeline_layout, null);
 
-        const vert = try device.vkd.createShaderModule(device.device, &.{
+        const vert = try gc.device.createShaderModule(&.{
             .code_size = shaders.nuklear_vert.len,
             .p_code = @ptrCast(&shaders.nuklear_vert),
         }, null);
-        defer device.vkd.destroyShaderModule(device.device, vert, null);
+        defer gc.device.destroyShaderModule(vert, null);
 
-        const frag = try device.vkd.createShaderModule(device.device, &.{
+        const frag = try gc.device.createShaderModule(&.{
             .code_size = shaders.nuklear_frag.len,
             .p_code = @ptrCast(&shaders.nuklear_frag),
         }, null);
-        defer device.vkd.destroyShaderModule(device.device, frag, null);
+        defer gc.device.destroyShaderModule(frag, null);
 
         const pssci = [_]vk.PipelineShaderStageCreateInfo{
             .{
@@ -377,8 +374,7 @@ pub fn init(
         };
 
         var pipeline: vk.Pipeline = undefined;
-        _ = try device.vkd.createGraphicsPipelines(
-            device.device,
+        _ = try gc.device.createGraphicsPipelines(
             .null_handle,
             1,
             @ptrCast(&gpci),
@@ -389,12 +385,12 @@ pub fn init(
         break :blk .{ pipeline, pipeline_layout };
     };
     errdefer {
-        device.vkd.destroyPipeline(device.device, pipeline, null);
-        device.vkd.destroyPipelineLayout(device.device, pipeline_layout, null);
+        gc.device.destroyPipeline(pipeline, null);
+        gc.device.destroyPipelineLayout(pipeline_layout, null);
     }
 
     const vertex_buffer = try Buffer.init(
-        device,
+        gc,
         max_vertex_buffer_size,
         .{ .vertex_buffer_bit = true },
         .{
@@ -403,10 +399,10 @@ pub fn init(
         },
         .{},
     );
-    errdefer vertex_buffer.deinit(device);
+    errdefer vertex_buffer.deinit(gc);
 
     const index_buffer = try Buffer.init(
-        device,
+        gc,
         max_index_buffer_size,
         .{ .index_buffer_bit = true },
         .{
@@ -415,7 +411,7 @@ pub fn init(
         },
         .{},
     );
-    errdefer index_buffer.deinit(device);
+    errdefer index_buffer.deinit(gc);
 
     return .{
         .pipeline = pipeline,
@@ -435,27 +431,27 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *Self, device: *const Device, allocator: std.mem.Allocator) void {
-    self.index_buffer.deinit(device);
-    self.vertex_buffer.deinit(device);
+pub fn deinit(self: *Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) void {
+    self.index_buffer.deinit(gc);
+    self.vertex_buffer.deinit(gc);
 
-    device.vkd.destroyPipeline(device.device, self.pipeline, null);
-    device.vkd.destroyPipelineLayout(device.device, self.pipeline_layout, null);
+    gc.device.destroyPipeline(self.pipeline, null);
+    gc.device.destroyPipelineLayout(self.pipeline_layout, null);
 
     allocator.free(self.descriptor_sets);
-    device.vkd.destroyDescriptorSetLayout(device.device, self.descriptor_set_layout, null);
-    device.vkd.destroyDescriptorPool(device.device, self.descriptor_pool, null);
-    device.vkd.destroySampler(device.device, self.sampler, null);
+    gc.device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);
+    gc.device.destroyDescriptorPool(self.descriptor_pool, null);
+    gc.device.destroySampler(self.sampler, null);
 
     for (self.textures) |texture| {
-        texture.deinit(device);
+        texture.deinit(gc);
     }
     allocator.free(self.textures);
 }
 
 pub fn record(
     self: *Self,
-    device: *const Device,
+    gc: *const GraphicsContext,
     cmdbuf: vk.CommandBuffer,
     dst_image_view: vk.ImageView,
     extent: vk.Extent2D,
@@ -476,28 +472,26 @@ pub fn record(
             .extent = extent,
         };
 
-        device.vkd.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&viewport));
-        device.vkd.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&scissor));
+        gc.device.cmdSetViewport(cmdbuf, 0, 1, @ptrCast(&viewport));
+        gc.device.cmdSetScissor(cmdbuf, 0, 1, @ptrCast(&scissor));
     }
 
     var cmd_it = blk: {
-        const vertex_memory: [*]u8 = @ptrCast(try device.vkd.mapMemory(
-            device.device,
+        const vertex_memory: [*]u8 = @ptrCast(try gc.device.mapMemory(
             self.vertex_buffer.memory,
             0,
             vk.WHOLE_SIZE,
             .{},
         ));
-        defer device.vkd.unmapMemory(device.device, self.vertex_buffer.memory);
+        defer gc.device.unmapMemory(self.vertex_buffer.memory);
 
-        const index_memory: [*]u8 = @ptrCast(try device.vkd.mapMemory(
-            device.device,
+        const index_memory: [*]u8 = @ptrCast(try gc.device.mapMemory(
             self.index_buffer.memory,
             0,
             vk.WHOLE_SIZE,
             .{},
         ));
-        defer device.vkd.unmapMemory(device.device, self.index_buffer.memory);
+        defer gc.device.unmapMemory(self.index_buffer.memory);
 
         break :blk nuklear.getDrawCommands(
             Vertex,
@@ -527,13 +521,13 @@ pub fn record(
         .view_mask = 0,
     };
 
-    device.vkd.cmdBeginRendering(cmdbuf, &render_info);
-    defer device.vkd.cmdEndRendering(cmdbuf);
+    gc.device.cmdBeginRendering(cmdbuf, &render_info);
+    defer gc.device.cmdEndRendering(cmdbuf);
 
-    device.vkd.cmdBindPipeline(cmdbuf, .graphics, self.pipeline);
+    gc.device.cmdBindPipeline(cmdbuf, .graphics, self.pipeline);
 
     const offset: vk.DeviceSize = 0;
-    device.vkd.cmdBindVertexBuffers(
+    gc.device.cmdBindVertexBuffers(
         cmdbuf,
         0,
         1,
@@ -541,7 +535,7 @@ pub fn record(
         @ptrCast(&offset),
     );
 
-    device.vkd.cmdBindIndexBuffer(
+    gc.device.cmdBindIndexBuffer(
         cmdbuf,
         self.index_buffer.buffer,
         0,
@@ -556,7 +550,7 @@ pub fn record(
             -1.0,                                        1.0,                                           0.0,  1.0,
         },
     };
-    device.vkd.cmdPushConstants(
+    gc.device.cmdPushConstants(
         cmdbuf,
         self.pipeline_layout,
         .{ .vertex_bit = true },
@@ -571,7 +565,7 @@ pub fn record(
         if (cmd.texture_id != current_texture_id) {
             current_texture_id = cmd.texture_id;
 
-            device.vkd.cmdBindDescriptorSets(
+            gc.device.cmdBindDescriptorSets(
                 cmdbuf,
                 .graphics,
                 self.pipeline_layout,
@@ -594,13 +588,13 @@ pub fn record(
                 .height = @intFromFloat(cmd.clip_rect.h),
             },
         };
-        device.vkd.cmdSetScissor(
+        gc.device.cmdSetScissor(
             cmdbuf,
             0,
             1,
             @ptrCast(&scissor),
         );
-        device.vkd.cmdDrawIndexed(
+        gc.device.cmdDrawIndexed(
             cmdbuf,
             cmd.count,
             1,
