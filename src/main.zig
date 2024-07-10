@@ -69,12 +69,12 @@ pub fn main() !void {
         .height = res.args.@"resolution-y" orelse 1080,
     };
 
-    const context = try zw.init(allocator);
-    defer context.deinit();
+    try zw.init(allocator);
+    defer zw.deinit();
 
     var input: Input = .{};
 
-    const window = try context.createWindow(.{
+    const window = try zw.createWindow(.{
         .name = app_name,
         .width = extent.width,
         .height = extent.height,
@@ -88,7 +88,7 @@ pub fn main() !void {
 
     var instance = try Instance.init(
         app_name,
-        context.requiredVulkanInstanceExtensions(),
+        zw.requiredVulkanInstanceExtensions(),
         allocator,
     );
     defer instance.deinit();
@@ -177,7 +177,7 @@ pub fn main() !void {
         defer timer.lap();
         defer nuklear.clear();
 
-        context.pollEvents();
+        zw.pollEvents();
 
         input.update();
         nuklear.update(&input);
