@@ -87,7 +87,7 @@ pub fn init(
         .{ .device_address_bit = true },
     );
     defer scratch_buffer.deinit(gc);
-    const scratch_buffer_address = gc.device.getBufferDeviceAddress(&.{ .buffer = scratch_buffer.buffer });
+    const scratch_buffer_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = scratch_buffer.buffer });
 
     build_info.dst_acceleration_structure = acceleration_structure;
     build_info.scratch_data = .{ .device_address = scratch_buffer_address };

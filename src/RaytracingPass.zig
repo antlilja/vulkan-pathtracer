@@ -24,6 +24,34 @@ const ObjDesc = struct {
     material_address: vk.DeviceAddress,
 };
 
+pub const apis = [_]vk.ApiInfo{
+    vk.features.version_1_1,
+    vk.extensions.khr_ray_tracing_pipeline,
+    vk.extensions.khr_acceleration_structure,
+    vk.extensions.khr_buffer_device_address,
+};
+
+pub const extensions = [_][*:0]const u8{
+    vk.extensions.khr_ray_tracing_pipeline.name,
+    vk.extensions.khr_spirv_1_4.name,
+    vk.extensions.khr_shader_float_controls.name,
+    vk.extensions.khr_acceleration_structure.name,
+    vk.extensions.khr_buffer_device_address.name,
+    vk.extensions.ext_descriptor_indexing.name,
+    vk.extensions.khr_deferred_host_operations.name,
+};
+
+pub const features = .{
+    vk.PhysicalDeviceFeatures{ .shader_int_64 = vk.TRUE },
+    vk.PhysicalDeviceVulkan12Features{
+        .buffer_device_address = vk.TRUE,
+        .runtime_descriptor_array = vk.TRUE,
+        .descriptor_indexing = vk.TRUE,
+    },
+    vk.PhysicalDeviceAccelerationStructureFeaturesKHR{ .acceleration_structure = vk.TRUE },
+    vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{ .ray_tracing_pipeline = vk.TRUE },
+};
+
 blases: []Blas,
 tlas: Tlas,
 albedos: []const Image,
@@ -335,7 +363,7 @@ fn createBlases(
         allocator.free(blases);
     }
 
-    const buffer_address = gc.device.getBufferDeviceAddress(
+    const buffer_address = gc.device.getBufferDeviceAddressKHR(
         &.{ .buffer = gpu_buffer.buffer },
     );
 

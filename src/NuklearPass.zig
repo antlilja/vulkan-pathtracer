@@ -46,6 +46,20 @@ const Vertex = struct {
 
 const Self = @This();
 
+pub const apis = [_]vk.ApiInfo{
+    vk.extensions.khr_dynamic_rendering,
+};
+
+pub const extensions = [_][*:0]const u8{
+    vk.extensions.khr_dynamic_rendering.name,
+};
+
+pub const features = .{
+    vk.PhysicalDeviceVulkan13Features{
+        .dynamic_rendering = vk.TRUE,
+    },
+};
+
 pipeline: vk.Pipeline,
 pipeline_layout: vk.PipelineLayout,
 
@@ -521,8 +535,8 @@ pub fn record(
         .view_mask = 0,
     };
 
-    gc.device.cmdBeginRendering(cmdbuf, &render_info);
-    defer gc.device.cmdEndRendering(cmdbuf);
+    gc.device.cmdBeginRenderingKHR(cmdbuf, &render_info);
+    defer gc.device.cmdEndRenderingKHR(cmdbuf);
 
     gc.device.cmdBindPipeline(cmdbuf, .graphics, self.pipeline);
 

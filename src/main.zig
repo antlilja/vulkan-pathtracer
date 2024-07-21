@@ -10,6 +10,7 @@ const Nuklear = @import("Nuklear.zig");
 
 const Vec3 = @import("Vec3.zig");
 
+const Features = @import("Features.zig");
 const GraphicsContext = @import("GraphicsContext.zig");
 const Swapchain = @import("Swapchain.zig");
 const Image = @import("Image.zig");
@@ -20,6 +21,8 @@ const RaytracingPass = @import("RaytracingPass.zig");
 const Camera = @import("Camera.zig");
 
 const app_name = "Engine";
+
+pub const vk_extra_apis = NuklearPass.apis ++ RaytracingPass.apis;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -85,22 +88,22 @@ pub fn main() !void {
     });
     defer window.destroy();
 
-    const gc = try GraphicsContext.init(
-        allocator,
-        "vulkan-pathtracer",
-        zw.requiredVulkanInstanceExtensions(),
-        &.{
-            vk.extensions.khr_ray_tracing_pipeline.name,
-            vk.extensions.khr_spirv_1_4.name,
-            vk.extensions.khr_shader_float_controls.name,
-            vk.extensions.khr_acceleration_structure.name,
-            vk.extensions.khr_buffer_device_address.name,
-            vk.extensions.ext_descriptor_indexing.name,
-            vk.extensions.khr_deferred_host_operations.name,
-            vk.extensions.khr_dynamic_rendering.name,
-        },
-        window,
-    );
+    const gc = blk: {
+        const features = try Features.init(
+            NuklearPass.features ++ RaytracingPass.features,
+            allocator,
+        );
+        defer features.deinit();
+        break :blk try GraphicsContext.init(
+            allocator,
+            "vulkan-pathtracer",
+            window,
+            vk.API_VERSION_1_3,
+            zw.requiredVulkanInstanceExtensions(),
+            &(NuklearPass.extensions ++ RaytracingPass.extensions),
+            features.base,
+        );
+    };
     defer gc.deinit();
 
     var swapchain = try Swapchain.init(

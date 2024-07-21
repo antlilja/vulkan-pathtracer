@@ -452,9 +452,9 @@ pub fn init(
         .{ .device_address_bit = true },
     );
 
-    const ray_gen_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = ray_gen_binding_table.buffer });
-    const miss_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = miss_binding_table.buffer });
-    const closest_hit_device_address = gc.device.getBufferDeviceAddress(&.{ .buffer = closest_hit_binding_table.buffer });
+    const ray_gen_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = ray_gen_binding_table.buffer });
+    const miss_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = miss_binding_table.buffer });
+    const closest_hit_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = closest_hit_binding_table.buffer });
 
     return .{
         .sampler = sampler,

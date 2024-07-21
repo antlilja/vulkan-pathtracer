@@ -5,25 +5,18 @@ const zw = @import("zig-window");
 
 const vk = @import("vulkan");
 
-const apis: []const vk.ApiInfo = &.{
+const apis = [_]vk.ApiInfo{
     vk.features.version_1_0,
-    vk.features.version_1_1,
-    vk.features.version_1_2,
-    vk.features.version_1_3,
     vk.extensions.khr_surface,
     vk.extensions.khr_swapchain,
-    vk.extensions.khr_ray_tracing_pipeline,
-    vk.extensions.khr_acceleration_structure,
-};
+} ++ @import("root").vk_extra_apis;
 
-const BaseDispatch = vk.BaseWrapper(apis);
-const InstanceDispatch = vk.InstanceWrapper(apis);
-const DeviceDispatch = vk.DeviceWrapper(apis);
+const BaseDispatch = vk.BaseWrapper(&apis);
+const InstanceDispatch = vk.InstanceWrapper(&apis);
+const DeviceDispatch = vk.DeviceWrapper(&apis);
 
-const Instance = vk.InstanceProxy(apis);
-const Device = vk.DeviceProxy(apis);
-
-pub const CommandBuffer = vk.CommandBufferProxy(apis);
+const Instance = vk.InstanceProxy(&apis);
+const Device = vk.DeviceProxy(&apis);
 
 pub const Queue = struct {
     handle: vk.Queue,
@@ -59,10 +52,17 @@ present_queue: Queue,
 pub fn init(
     allocator: std.mem.Allocator,
     name: []const u8,
-    required_instance_extensions: []const [*:0]const u8,
-    extra_required_device_extensions: []const [*:0]const u8,
     window: zw.Window,
+    api_version: u32,
+    required_instance_extensions: []const [*:0]const u8,
+    required_device_extensions: []const [*:0]const u8,
+    features_ptr: ?*const anyopaque,
 ) !Self {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+
+    const arena_allocator = arena.allocator();
+
     var self: Self = undefined;
 
     self.allocator = allocator;
@@ -77,15 +77,14 @@ pub fn init(
 
     self.vkb = try BaseDispatch.load(get_instance_proc_addr_fn);
 
-    const app_name_z = try allocator.dupeZ(u8, name);
-    defer allocator.free(app_name_z);
+    const app_name_z = try arena_allocator.dupeZ(u8, name);
 
     const app_info = vk.ApplicationInfo{
         .p_application_name = app_name_z,
         .application_version = vk.makeApiVersion(0, 1, 0, 0),
         .p_engine_name = app_name_z,
         .engine_version = vk.makeApiVersion(0, 1, 0, 0),
-        .api_version = vk.API_VERSION_1_3,
+        .api_version = api_version,
     };
 
     const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
@@ -96,8 +95,7 @@ pub fn init(
             null,
         ) == .success);
 
-        const props = try allocator.alloc(vk.LayerProperties, @intCast(prop_count));
-        defer allocator.free(props);
+        const props = try arena_allocator.alloc(vk.LayerProperties, @intCast(prop_count));
         std.debug.assert(try self.vkb.enumerateInstanceLayerProperties(
             &prop_count,
             props.ptr,
@@ -142,11 +140,10 @@ pub fn init(
     );
     errdefer self.instance.destroySurfaceKHR(self.surface, null);
 
-    const required_device_extensions = try allocator.alloc([*:0]const u8, extra_required_device_extensions.len + 1);
-    defer allocator.free(required_device_extensions);
-    required_device_extensions[0] = vk.extensions.khr_swapchain.name;
-    for (extra_required_device_extensions, 1..) |ext, i| {
-        required_device_extensions[i] = ext;
+    const device_extensions = try arena_allocator.alloc([*:0]const u8, required_device_extensions.len + 1);
+    device_extensions[0] = vk.extensions.khr_swapchain.name;
+    for (required_device_extensions, 1..) |ext, i| {
+        device_extensions[i] = ext;
     }
 
     // Pick physical device
@@ -157,8 +154,7 @@ pub fn init(
             null,
         );
 
-        const devices = try allocator.alloc(vk.PhysicalDevice, device_count);
-        defer allocator.free(devices);
+        const devices = try arena_allocator.alloc(vk.PhysicalDevice, device_count);
 
         _ = try self.instance.enumeratePhysicalDevices(
             &device_count,
@@ -176,8 +172,7 @@ pub fn init(
                     null,
                 );
 
-                const propsv = try allocator.alloc(vk.ExtensionProperties, count);
-                defer allocator.free(propsv);
+                const propsv = try arena_allocator.alloc(vk.ExtensionProperties, count);
 
                 _ = try self.instance.enumerateDeviceExtensionProperties(
                     device,
@@ -225,8 +220,7 @@ pub fn init(
                 null,
             );
 
-            const families = try allocator.alloc(vk.QueueFamilyProperties, family_count);
-            defer allocator.free(families);
+            const families = try arena_allocator.alloc(vk.QueueFamilyProperties, family_count);
             self.instance.getPhysicalDeviceQueueFamilyProperties(
                 device,
                 &family_count,
@@ -288,39 +282,12 @@ pub fn init(
         else
             2;
 
-        var buffer_address_features = vk.PhysicalDeviceBufferDeviceAddressFeatures{
-            .buffer_device_address = vk.TRUE,
-        };
-        var ray_tracing_pipeline_features = vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{
-            .p_next = @ptrCast(&buffer_address_features),
-            .ray_tracing_pipeline = vk.TRUE,
-        };
-        var acceleration_structure_features = vk.PhysicalDeviceAccelerationStructureFeaturesKHR{
-            .p_next = @ptrCast(&ray_tracing_pipeline_features),
-            .acceleration_structure = vk.TRUE,
-        };
-
-        var runtime_descriptor_array_feature = vk.PhysicalDeviceDescriptorIndexingFeatures{
-            .p_next = @ptrCast(&acceleration_structure_features),
-            .runtime_descriptor_array = vk.TRUE,
-        };
-
-        var dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeaturesKHR{
-            .p_next = @ptrCast(&runtime_descriptor_array_feature),
-            .dynamic_rendering = vk.TRUE,
-        };
-
-        const device_features = vk.PhysicalDeviceFeatures{
-            .shader_int_64 = vk.TRUE,
-        };
-
         break :blk try self.instance.createDevice(self.physical_device, &.{
-            .p_next = @as(*const anyopaque, @ptrCast(&dynamic_rendering_features)),
+            .p_next = features_ptr,
             .queue_create_info_count = queue_count,
             .p_queue_create_infos = &qci,
-            .enabled_extension_count = @intCast(required_device_extensions.len),
-            .pp_enabled_extension_names = required_device_extensions.ptr,
-            .p_enabled_features = &device_features,
+            .enabled_extension_count = @intCast(device_extensions.len),
+            .pp_enabled_extension_names = device_extensions.ptr,
         }, null);
     };
 
