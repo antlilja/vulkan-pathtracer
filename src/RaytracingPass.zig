@@ -472,6 +472,22 @@ pub fn record(
     camera: Camera,
     frame_count: u32,
 ) !void {
+    Image.imageSetLayout(
+        gc,
+        cmdbuf,
+        dst_image,
+        .undefined,
+        .transfer_dst_optimal,
+    );
+
+    defer Image.imageSetLayout(
+        gc,
+        cmdbuf,
+        dst_image,
+        .transfer_dst_optimal,
+        .present_src_khr,
+    );
+
     const handle_size_aligned = std.mem.alignForward(
         u32,
         self.pipeline.properties.shader_group_handle_size,
