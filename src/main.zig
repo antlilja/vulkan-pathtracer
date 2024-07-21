@@ -113,6 +113,46 @@ pub fn main() !void {
     );
     defer swapchain.deinit(&gc, allocator);
 
+    const render_pass = blk: {
+        const color_attachment = vk.AttachmentDescription{
+            .format = swapchain.surface_format.format,
+            .samples = .{ .@"1_bit" = true },
+            .load_op = .load,
+            .store_op = .store,
+            .stencil_load_op = .dont_care,
+            .stencil_store_op = .dont_care,
+            .initial_layout = .present_src_khr,
+            .final_layout = .present_src_khr,
+        };
+
+        const color_attachment_ref = vk.AttachmentReference{
+            .attachment = 0,
+            .layout = .color_attachment_optimal,
+        };
+
+        const subpass = vk.SubpassDescription{
+            .pipeline_bind_point = .graphics,
+            .color_attachment_count = 1,
+            .p_color_attachments = @ptrCast(&color_attachment_ref),
+        };
+
+        break :blk try gc.device.createRenderPass(&.{
+            .attachment_count = 1,
+            .p_attachments = @ptrCast(&color_attachment),
+            .subpass_count = 1,
+            .p_subpasses = @ptrCast(&subpass),
+        }, null);
+    };
+    defer gc.device.destroyRenderPass(render_pass, null);
+
+    var framebuffers = try createFramebuffers(
+        &gc,
+        allocator,
+        render_pass,
+        &swapchain,
+    );
+    defer destroyFramebuffers(&gc, allocator, framebuffers);
+
     const pool = try gc.device.createCommandPool(&.{
         .queue_family_index = gc.graphics_queue.family,
         .flags = .{ .reset_command_buffer_bit = true },
@@ -124,8 +164,8 @@ pub fn main() !void {
 
     var nuklear_pass = try NuklearPass.init(
         &gc,
-        swapchain.surface_format.format,
         pool,
+        render_pass,
         1024 * 512,
         1024 * 128,
         &nuklear,
@@ -267,21 +307,14 @@ pub fn main() !void {
         nuklear.end();
 
         const cmdbuf = cmdbufs[swapchain.image_index];
+        const framebuffer = framebuffers[swapchain.image_index];
+
         try swapchain.currentSwapImage().waitForFence(&gc);
 
         {
             const swap_image = swapchain.currentSwapImage().image;
-            const swap_image_view = swapchain.currentSwapImage().view;
 
             try gc.device.beginCommandBuffer(cmdbuf, &.{});
-
-            Image.imageSetLayout(
-                &gc,
-                cmdbuf,
-                swap_image,
-                .undefined,
-                .transfer_dst_optimal,
-            );
 
             try raytracing_pass.record(
                 &gc,
@@ -292,22 +325,53 @@ pub fn main() !void {
                 timer.frame_count,
             );
 
-            Image.imageSetLayout(
-                &gc,
+            const viewport = vk.Viewport{
+                .x = 0,
+                .y = 0,
+                .width = @floatFromInt(extent.width),
+                .height = @floatFromInt(extent.height),
+                .min_depth = 0,
+                .max_depth = 1,
+            };
+
+            const scissor = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = extent,
+            };
+
+            gc.device.cmdSetViewport(
                 cmdbuf,
-                swap_image,
-                .transfer_dst_optimal,
-                .present_src_khr,
+                0,
+                1,
+                @ptrCast(&viewport),
             );
+            gc.device.cmdSetScissor(
+                cmdbuf,
+                0,
+                1,
+                @ptrCast(&scissor),
+            );
+
+            const render_area = vk.Rect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = extent,
+            };
+
+            gc.device.cmdBeginRenderPass(cmdbuf, &.{
+                .render_pass = render_pass,
+                .framebuffer = framebuffer,
+                .render_area = render_area,
+                .clear_value_count = 0,
+                .p_clear_values = undefined,
+            }, .@"inline");
 
             try nuklear_pass.record(
                 &gc,
                 cmdbuf,
-                swap_image_view,
                 extent,
                 &nuklear,
             );
-
+            gc.device.cmdEndRenderPass(cmdbuf);
             try gc.device.endCommandBuffer(cmdbuf);
         }
 
@@ -327,6 +391,14 @@ pub fn main() !void {
                 &gc,
                 allocator,
                 extent,
+            );
+
+            destroyFramebuffers(&gc, allocator, framebuffers);
+            framebuffers = try createFramebuffers(
+                &gc,
+                allocator,
+                render_pass,
+                &swapchain,
             );
 
             camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
@@ -357,4 +429,43 @@ pub fn main() !void {
     }
 
     try swapchain.waitForAllFences(&gc);
+}
+
+fn createFramebuffers(
+    gc: *const GraphicsContext,
+    allocator: std.mem.Allocator,
+    render_pass: vk.RenderPass,
+    swapchain: *const Swapchain,
+) ![]vk.Framebuffer {
+    const framebuffers = try allocator.alloc(vk.Framebuffer, swapchain.swap_images.len);
+    errdefer allocator.free(framebuffers);
+
+    var i: usize = 0;
+    errdefer for (framebuffers[0..i]) |fb| gc.device.destroyFramebuffer(
+        fb,
+        null,
+    );
+
+    for (framebuffers) |*fb| {
+        fb.* = try gc.device.createFramebuffer(&.{
+            .render_pass = render_pass,
+            .attachment_count = 1,
+            .p_attachments = @ptrCast(&swapchain.swap_images[i].view),
+            .width = swapchain.extent.width,
+            .height = swapchain.extent.height,
+            .layers = 1,
+        }, null);
+        i += 1;
+    }
+
+    return framebuffers;
+}
+
+fn destroyFramebuffers(
+    gc: *const GraphicsContext,
+    allocator: std.mem.Allocator,
+    framebuffers: []const vk.Framebuffer,
+) void {
+    for (framebuffers) |fb| gc.device.destroyFramebuffer(fb, null);
+    allocator.free(framebuffers);
 }

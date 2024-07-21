@@ -9,8 +9,6 @@ const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
-const Mat4 = @import("Mat4.zig");
-
 const Vertex = struct {
     const binding_description = vk.VertexInputBindingDescription{
         .binding = 0,
@@ -46,19 +44,9 @@ const Vertex = struct {
 
 const Self = @This();
 
-pub const apis = [_]vk.ApiInfo{
-    vk.extensions.khr_dynamic_rendering,
-};
-
-pub const extensions = [_][*:0]const u8{
-    vk.extensions.khr_dynamic_rendering.name,
-};
-
-pub const features = .{
-    vk.PhysicalDeviceVulkan13Features{
-        .dynamic_rendering = vk.TRUE,
-    },
-};
+pub const apis = [_]vk.ApiInfo{};
+pub const extensions = [_][*:0]const u8{};
+pub const features = .{};
 
 pipeline: vk.Pipeline,
 pipeline_layout: vk.PipelineLayout,
@@ -79,8 +67,8 @@ max_index_buffer_size: u32,
 
 pub fn init(
     gc: *const GraphicsContext,
-    format: vk.Format,
     pool: vk.CommandPool,
+    render_pass: vk.RenderPass,
     max_vertex_buffer_size: u32,
     max_index_buffer_size: u32,
     nuklear: *const Nuklear,
@@ -96,10 +84,7 @@ pub fn init(
                 .height = 1,
             },
             .r8g8b8a8_unorm,
-            .{
-                .sampled_bit = true,
-                .transfer_dst_bit = true,
-            },
+            .{ .sampled_bit = true },
             .optimal,
             .undefined,
             .{ .device_local_bit = true },
@@ -116,10 +101,7 @@ pub fn init(
                 .height = nuklear.font_atlas_height,
             },
             .r8g8b8a8_unorm,
-            .{
-                .sampled_bit = true,
-                .transfer_dst_bit = true,
-            },
+            .{ .sampled_bit = true },
             .optimal,
             .undefined,
             .{ .device_local_bit = true },
@@ -358,16 +340,7 @@ pub fn init(
             .p_dynamic_states = &dynstate,
         };
 
-        const rendering_create_info = vk.PipelineRenderingCreateInfo{
-            .color_attachment_count = 1,
-            .p_color_attachment_formats = @ptrCast(&format),
-            .view_mask = 0,
-            .depth_attachment_format = .undefined,
-            .stencil_attachment_format = .undefined,
-        };
-
         const gpci = vk.GraphicsPipelineCreateInfo{
-            .p_next = @ptrCast(&rendering_create_info),
             .flags = .{},
             .stage_count = 2,
             .p_stages = &pssci,
@@ -381,7 +354,7 @@ pub fn init(
             .p_color_blend_state = &pcbsci,
             .p_dynamic_state = &pdsci,
             .layout = pipeline_layout,
-            .render_pass = .null_handle,
+            .render_pass = render_pass,
             .subpass = 0,
             .base_pipeline_handle = .null_handle,
             .base_pipeline_index = -1,
@@ -445,7 +418,7 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *const Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) void {
     self.index_buffer.deinit(gc);
     self.vertex_buffer.deinit(gc);
 
@@ -467,7 +440,6 @@ pub fn record(
     self: *Self,
     gc: *const GraphicsContext,
     cmdbuf: vk.CommandBuffer,
-    dst_image_view: vk.ImageView,
     extent: vk.Extent2D,
     nuklear: *Nuklear,
 ) !void {
@@ -514,30 +486,6 @@ pub fn record(
         );
     };
 
-    const color_attachment_info = vk.RenderingAttachmentInfo{
-        .image_view = dst_image_view,
-        .image_layout = .color_attachment_optimal,
-        .load_op = .load,
-        .store_op = .store,
-        .clear_value = .{ .color = .{ .float_32 = .{ 0.0, 0.0, 0.0, 0.0 } } },
-        .resolve_mode = .{},
-        .resolve_image_layout = .undefined,
-    };
-
-    const render_info = vk.RenderingInfo{
-        .render_area = .{
-            .extent = extent,
-            .offset = .{ .x = 0, .y = 0 },
-        },
-        .layer_count = 1,
-        .color_attachment_count = 1,
-        .p_color_attachments = @ptrCast(&color_attachment_info),
-        .view_mask = 0,
-    };
-
-    gc.device.cmdBeginRenderingKHR(cmdbuf, &render_info);
-    defer gc.device.cmdEndRenderingKHR(cmdbuf);
-
     gc.device.cmdBindPipeline(cmdbuf, .graphics, self.pipeline);
 
     const offset: vk.DeviceSize = 0;
@@ -556,21 +504,20 @@ pub fn record(
         .uint16,
     );
 
-    const projection = Mat4{
-        .elements = .{
-            2.0 / @as(f32, @floatFromInt(extent.width)), 0.0,                                           0.0,  0.0,
-            0.0,                                         -2.0 / @as(f32, @floatFromInt(extent.height)), 0.0,  0.0,
-            0.0,                                         0.0,                                           -1.0, 0.0,
-            -1.0,                                        1.0,                                           0.0,  1.0,
-        },
+    const matrix = [16]f32{
+        2.0 / @as(f32, @floatFromInt(extent.width)), 0.0,                                           0.0,  0.0,
+        0.0,                                         -2.0 / @as(f32, @floatFromInt(extent.height)), 0.0,  0.0,
+        0.0,                                         0.0,                                           -1.0, 0.0,
+        -1.0,                                        1.0,                                           0.0,  1.0,
     };
+
     gc.device.cmdPushConstants(
         cmdbuf,
         self.pipeline_layout,
         .{ .vertex_bit = true },
         0,
-        64,
-        @ptrCast(&projection),
+        @sizeOf([16]f32),
+        @ptrCast(&matrix),
     );
 
     var current_texture_id: u32 = std.math.maxInt(c_int);
