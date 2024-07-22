@@ -5,7 +5,6 @@ const Scene = @import("Scene.zig");
 const GraphicsContext = @import("GraphicsContext.zig");
 
 const Buffer = @import("Buffer.zig");
-const Blas = @import("Blas.zig");
 
 const Self = @This();
 
@@ -16,7 +15,7 @@ address: vk.DeviceAddress,
 pub fn init(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
-    blases: []const Blas,
+    blas_addresses: []const vk.DeviceAddress,
     blas_instances: []const Scene.Instance,
     allocator: std.mem.Allocator,
 ) !Self {
@@ -32,12 +31,12 @@ pub fn init(
                     .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
                     .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
                 } },
-                .instance_custom_index_and_mask = .{ .instance_custom_index = @as(u24, @truncate(i)), .mask = 0xff },
+                .instance_custom_index_and_mask = .{ .instance_custom_index = @intCast(i), .mask = 0xff },
                 .instance_shader_binding_table_record_offset_and_flags = .{
                     .instance_shader_binding_table_record_offset = 0,
                     .flags = 0,
                 },
-                .acceleration_structure_reference = blases[blas_instance.mesh_index].address,
+                .acceleration_structure_reference = blas_addresses[blas_instance.mesh_index],
             };
             i += 1;
         }
@@ -76,7 +75,7 @@ pub fn init(
         .scratch_data = .{ .device_address = 0 },
     };
 
-    const primitive_count: u32 = @as(u32, @truncate(blases.len));
+    const primitive_count: u32 = @intCast(blas_addresses.len);
     var build_sizes: vk.AccelerationStructureBuildSizesInfoKHR = .{
         .acceleration_structure_size = 0,
         .update_scratch_size = 0,

@@ -183,7 +183,7 @@ pub fn main() !void {
         num_samples,
         num_bounces,
     );
-    defer raytracing_pass.deinit(&gc, allocator);
+    defer raytracing_pass.deinit(&gc);
 
     var cmdbufs = try allocator.alloc(vk.CommandBuffer, swapchain.swap_images.len);
     try gc.device.allocateCommandBuffers(&.{

@@ -9,7 +9,6 @@ const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
 
-const Blas = @import("Blas.zig");
 const Tlas = @import("Tlas.zig");
 
 const RayTracingPipeline = @import("RayTracingPipeline.zig");
@@ -52,13 +51,18 @@ pub const features = .{
     vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{ .ray_tracing_pipeline = vk.TRUE },
 };
 
-blases: []Blas,
+arena: std.heap.ArenaAllocator,
+
+blas_acceleration_structure_buffer: Buffer,
+blas_acceleration_structures: []const vk.AccelerationStructureKHR,
+blas_acceleration_structure_addresses: []const vk.DeviceAddress,
+
 tlas: Tlas,
 albedos: []const Image,
 metal_roughness: []const Image,
 emissive: []const Image,
 normals: []const Image,
-blas_buffer: Buffer,
+mesh_buffer: Buffer,
 obj_descs: Buffer,
 
 storage_image: Image,
@@ -74,6 +78,10 @@ pub fn init(
     num_samples: u32,
     num_bounces: u32,
 ) !Self {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    errdefer arena.deinit();
+    const arena_allocator = arena.allocator();
+
     const scene = try Scene.load(scene_path, allocator);
     defer scene.deinit();
 
@@ -82,92 +90,67 @@ pub fn init(
         &scene,
         pool,
         allocator,
+        arena_allocator,
     );
     errdefer {
-        for (blases_and_buffer.blases) |blas| {
-            blas.deinit(gc);
+        for (blases_and_buffer.acceleration_structures) |as| {
+            gc.device.destroyAccelerationStructureKHR(as, null);
         }
-        allocator.free(blases_and_buffer.blases);
-        blases_and_buffer.buffer.deinit(gc);
-    }
-    defer allocator.free(blases_and_buffer.obj_descs);
-
-    const albedos = try createTextures(
-        gc,
-        pool,
-        scene.albedo_textures,
-        allocator,
-    );
-    errdefer {
-        for (albedos) |t| {
-            t.deinit(gc);
-        }
-        allocator.free(albedos);
-    }
-
-    const metal_roughness = try createTextures(
-        gc,
-        pool,
-        scene.metal_roughness_textures,
-        allocator,
-    );
-    errdefer {
-        for (metal_roughness) |t| {
-            t.deinit(gc);
-        }
-        allocator.free(metal_roughness);
-    }
-
-    const emissive = try createTextures(
-        gc,
-        pool,
-        scene.emissive_textures,
-        allocator,
-    );
-    errdefer {
-        for (emissive) |t| {
-            t.deinit(gc);
-        }
-        allocator.free(emissive);
-    }
-
-    const normals = try createTextures(
-        gc,
-        pool,
-        scene.normal_textures,
-        allocator,
-    );
-    errdefer {
-        for (normals) |t| {
-            t.deinit(gc);
-        }
-        allocator.free(normals);
+        blases_and_buffer.acceleration_structure_buffer.deinit(gc);
+        blases_and_buffer.mesh_buffer.deinit(gc);
+        blases_and_buffer.obj_descs.deinit(gc);
     }
 
     const tlas = try Tlas.init(
         gc,
         pool,
-        blases_and_buffer.blases,
+        blases_and_buffer.acceleration_structure_addresses,
         scene.instances,
         allocator,
     );
     errdefer tlas.deinit(gc);
 
-    const obj_descs = blases_and_buffer.obj_descs;
-
-    const obj_desc_buffer = try Buffer.initAndUpload(
+    const albedos = try createTextures(
         gc,
-        ObjDesc,
-        obj_descs,
-        .{
-            .shader_device_address_bit = true,
-            .storage_buffer_bit = true,
-        },
-        .{ .device_local_bit = true },
-        .{ .device_address_bit = true },
         pool,
+        scene.albedo_textures,
+        arena_allocator,
     );
-    errdefer obj_desc_buffer.deinit(gc);
+    errdefer for (albedos) |t| {
+        t.deinit(gc);
+    };
+
+    const metal_roughness = try createTextures(
+        gc,
+        pool,
+        scene.metal_roughness_textures,
+        arena_allocator,
+    );
+    errdefer for (metal_roughness) |t| {
+        t.deinit(gc);
+    };
+
+    const emissive = try createTextures(
+        gc,
+        pool,
+        scene.emissive_textures,
+        arena_allocator,
+    );
+    errdefer for (emissive) |t| {
+        t.deinit(gc);
+    };
+
+    const normals = try createTextures(
+        gc,
+        pool,
+        scene.normal_textures,
+        arena_allocator,
+    );
+    errdefer for (normals) |t| {
+        t.deinit(gc);
+    };
+
+    const obj_descs = blases_and_buffer.obj_descs;
 
     var storage_image = try Image.init(
         gc,
@@ -189,7 +172,7 @@ pub fn init(
         gc,
         &tlas,
         storage_image.view,
-        obj_desc_buffer.buffer,
+        obj_descs.buffer,
         albedos,
         metal_roughness,
         emissive,
@@ -201,10 +184,14 @@ pub fn init(
     errdefer pipeline.deinit(gc);
 
     return .{
-        .blases = blases_and_buffer.blases,
-        .blas_buffer = blases_and_buffer.buffer,
+        .arena = arena,
+
+        .blas_acceleration_structure_buffer = blases_and_buffer.acceleration_structure_buffer,
+        .blas_acceleration_structures = blases_and_buffer.acceleration_structures,
+        .blas_acceleration_structure_addresses = blases_and_buffer.acceleration_structure_addresses,
+        .mesh_buffer = blases_and_buffer.mesh_buffer,
         .tlas = tlas,
-        .obj_descs = obj_desc_buffer,
+        .obj_descs = obj_descs,
         .albedos = albedos,
         .metal_roughness = metal_roughness,
         .emissive = emissive,
@@ -215,7 +202,7 @@ pub fn init(
     };
 }
 
-pub fn deinit(self: *Self, gc: *const GraphicsContext, allocator: std.mem.Allocator) void {
+pub fn deinit(self: *Self, gc: *const GraphicsContext) void {
     self.pipeline.deinit(gc);
     self.storage_image.deinit(gc);
 
@@ -223,32 +210,30 @@ pub fn deinit(self: *Self, gc: *const GraphicsContext, allocator: std.mem.Alloca
 
     self.tlas.deinit(gc);
 
-    for (self.blases) |blas| {
-        blas.deinit(gc);
+    for (self.blas_acceleration_structures) |as| {
+        gc.device.destroyAccelerationStructureKHR(as, null);
     }
-    allocator.free(self.blases);
 
-    self.blas_buffer.deinit(gc);
+    self.blas_acceleration_structure_buffer.deinit(gc);
+
+    self.mesh_buffer.deinit(gc);
 
     for (self.normals) |t| {
         t.deinit(gc);
     }
-    allocator.free(self.normals);
 
     for (self.emissive) |t| {
         t.deinit(gc);
     }
-    allocator.free(self.emissive);
 
     for (self.metal_roughness) |t| {
         t.deinit(gc);
     }
-    allocator.free(self.metal_roughness);
 
     for (self.albedos) |t| {
         t.deinit(gc);
     }
-    allocator.free(self.albedos);
+    self.arena.deinit();
 }
 
 fn createBlases(
@@ -256,11 +241,18 @@ fn createBlases(
     scene: *const Scene,
     pool: vk.CommandPool,
     allocator: std.mem.Allocator,
+    arena_allocator: std.mem.Allocator,
 ) !struct {
-    blases: []Blas,
-    buffer: Buffer,
-    obj_descs: []const ObjDesc,
+    obj_descs: Buffer,
+    mesh_buffer: Buffer,
+    acceleration_structure_buffer: Buffer,
+    acceleration_structures: []vk.AccelerationStructureKHR,
+    acceleration_structure_addresses: []vk.DeviceAddress,
 } {
+    var tmp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer tmp_arena.deinit();
+    const tmp_arena_allocator = tmp_arena.allocator();
+
     const positions_size = scene.positions.len * @sizeOf([4]f32);
     const normals_size = scene.normals.len * @sizeOf([4]f32);
     const tangents_size = scene.tangents.len * @sizeOf([4]f32);
@@ -274,18 +266,6 @@ fn createBlases(
         material_indices_size +
         indices_size;
 
-    const staging_buffer = try Buffer.init(
-        gc,
-        total_size,
-        .{ .transfer_src_bit = true },
-        .{
-            .host_visible_bit = true,
-            .host_coherent_bit = true,
-        },
-        .{},
-    );
-    defer staging_buffer.deinit(gc);
-
     const positions_begin: usize = 0;
     const normals_begin: usize = positions_begin + positions_size;
     const tangents_begin: usize = normals_begin + normals_size;
@@ -293,106 +273,260 @@ fn createBlases(
     const material_indices_begin: usize = uvs_begin + uvs_size;
     const indices_begin: usize = material_indices_begin + material_indices_size;
 
-    {
-        const buffer_data: [*]u8 = @ptrCast(try gc.device.mapMemory(
-            staging_buffer.memory,
-            0,
-            vk.WHOLE_SIZE,
+    const mesh_buffer, const mesh_buffer_address = blk: {
+        const staging_buffer = try Buffer.init(
+            gc,
+            total_size,
+            .{ .transfer_src_bit = true },
+            .{
+                .host_visible_bit = true,
+                .host_coherent_bit = true,
+            },
             .{},
-        ));
-        defer gc.device.unmapMemory(staging_buffer.memory);
+        );
+        defer staging_buffer.deinit(gc);
 
-        const buffer_positions: [*][4]f32 = @alignCast(@ptrCast(buffer_data));
-        for (scene.positions, 0..) |pos, i| {
-            buffer_positions[i] = pos;
+        {
+            const buffer_data: [*]u8 = @ptrCast(try gc.device.mapMemory(
+                staging_buffer.memory,
+                0,
+                vk.WHOLE_SIZE,
+                .{},
+            ));
+            defer gc.device.unmapMemory(staging_buffer.memory);
+
+            const buffer_positions: [*][4]f32 = @alignCast(@ptrCast(buffer_data));
+            for (scene.positions, 0..) |pos, i| {
+                buffer_positions[i] = pos;
+            }
+
+            const buffer_normals: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[normals_begin]));
+            for (scene.normals, 0..) |normal, i| {
+                buffer_normals[i] = normal;
+            }
+
+            const buffer_tangents: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[tangents_begin]));
+            for (scene.tangents, 0..) |tangent, i| {
+                buffer_tangents[i] = tangent;
+            }
+
+            const buffer_uvs: [*][2]f32 = @alignCast(@ptrCast(&buffer_data[uvs_begin]));
+            for (scene.uvs, 0..) |uv, i| {
+                buffer_uvs[i] = uv;
+            }
+
+            const buffer_materials: [*]u32 = @alignCast(@ptrCast(&buffer_data[material_indices_begin]));
+            for (scene.material_indices, 0..) |material, i| {
+                buffer_materials[i] = material;
+            }
+
+            const buffer_indices: [*]u32 = @alignCast(@ptrCast(&buffer_data[indices_begin]));
+            for (scene.indices, 0..) |index, i| {
+                buffer_indices[i] = index;
+            }
         }
 
-        const buffer_normals: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[normals_begin]));
-        for (scene.normals, 0..) |normal, i| {
-            buffer_normals[i] = normal;
-        }
+        const mesh_buffer = try Buffer.init(
+            gc,
+            total_size,
+            .{
+                .acceleration_structure_build_input_read_only_bit_khr = true,
+                .shader_device_address_bit = true,
+                .storage_buffer_bit = true,
+                .transfer_dst_bit = true,
+            },
+            .{ .device_local_bit = true },
+            .{ .device_address_bit = true },
+        );
+        errdefer mesh_buffer.deinit(gc);
 
-        const buffer_tangents: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[tangents_begin]));
-        for (scene.tangents, 0..) |tangent, i| {
-            buffer_tangents[i] = tangent;
-        }
+        try mesh_buffer.oneTimeCopyFrom(
+            staging_buffer,
+            gc,
+            pool,
+            total_size,
+        );
 
-        const buffer_uvs: [*][2]f32 = @alignCast(@ptrCast(&buffer_data[uvs_begin]));
-        for (scene.uvs, 0..) |uv, i| {
-            buffer_uvs[i] = uv;
-        }
+        break :blk .{
+            mesh_buffer,
+            gc.device.getBufferDeviceAddressKHR(
+                &.{ .buffer = mesh_buffer.buffer },
+            ),
+        };
+    };
+    errdefer mesh_buffer.deinit(gc);
 
-        const buffer_materials: [*]u32 = @alignCast(@ptrCast(&buffer_data[material_indices_begin]));
-        for (scene.material_indices, 0..) |material, i| {
-            buffer_materials[i] = material;
-        }
+    var acceleration_structure_index: usize = 0;
+    const acceleration_structures = try arena_allocator.alloc(vk.AccelerationStructureKHR, scene.mesh_indices.len);
+    errdefer for (
+        acceleration_structures[0..acceleration_structure_index],
+    ) |as| gc.device.destroyAccelerationStructureKHR(
+        as,
+        null,
+    );
 
-        const buffer_indices: [*]u32 = @alignCast(@ptrCast(&buffer_data[indices_begin]));
-        for (scene.indices, 0..) |index, i| {
-            buffer_indices[i] = index;
-        }
+    const acceleration_structure_addresses = try arena_allocator.alloc(vk.DeviceAddress, scene.mesh_indices.len);
+
+    const infos = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildGeometryInfoKHR, scene.mesh_indices.len);
+
+    const sizes = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildSizesInfoKHR, scene.mesh_indices.len);
+
+    var total_acceleration_structures_size: vk.DeviceSize = 0;
+    var total_scratch_size: vk.DeviceSize = 0;
+
+    const obj_descs = try tmp_arena_allocator.alloc(ObjDesc, scene.mesh_indices.len);
+    for (scene.mesh_indices, infos, sizes, obj_descs) |mesh, *info, *size, *obj_desc| {
+        obj_desc.* = .{
+            .index_address = mesh_buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
+            .normal_address = mesh_buffer_address + normals_begin + mesh.vertex_start * @sizeOf([4]f32),
+            .tangent_address = mesh_buffer_address + tangents_begin + mesh.vertex_start * @sizeOf([4]f32),
+            .uv_address = mesh_buffer_address + uvs_begin + mesh.vertex_start * @sizeOf([2]f32),
+            .material_address = mesh_buffer_address + material_indices_begin + (mesh.index_start / 3) * @sizeOf(u32),
+        };
+
+        const geom = try tmp_arena_allocator.create(vk.AccelerationStructureGeometryKHR);
+        geom.* = .{
+            .geometry_type = .triangles_khr,
+            .flags = .{ .opaque_bit_khr = true },
+            .geometry = .{
+                .triangles = .{
+                    .vertex_format = .r32g32b32_sfloat,
+                    .vertex_stride = @sizeOf([4]f32),
+                    .max_vertex = mesh.vertex_end - mesh.vertex_start,
+                    .vertex_data = .{
+                        .device_address = mesh_buffer_address + positions_begin + mesh.vertex_start * @sizeOf([4]f32),
+                    },
+                    .index_type = .uint32,
+                    .index_data = .{
+                        .device_address = mesh_buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
+                    },
+                    .transform_data = .{ .device_address = 0 },
+                },
+            },
+        };
+
+        info.* = .{
+            .type = .bottom_level_khr,
+            .flags = .{ .prefer_fast_trace_bit_khr = true },
+            .mode = .build_khr,
+            .geometry_count = 1,
+            .p_geometries = @ptrCast(geom),
+            .scratch_data = .{ .device_address = 0 },
+        };
+        size.* = .{
+            .acceleration_structure_size = 0,
+            .update_scratch_size = 0,
+            .build_scratch_size = 0,
+        };
+
+        const num_triangles = (mesh.index_end - mesh.index_start) / 3;
+        gc.device.getAccelerationStructureBuildSizesKHR(
+            .device_khr,
+            info,
+            @ptrCast(&num_triangles),
+            size,
+        );
+
+        total_acceleration_structures_size += std.mem.alignForward(u64, size.acceleration_structure_size, 256);
+        total_scratch_size += size.build_scratch_size;
     }
 
-    const gpu_buffer = try Buffer.init(
+    const acceleration_structures_buffer = try Buffer.init(
         gc,
-        total_size,
-        .{
-            .acceleration_structure_build_input_read_only_bit_khr = true,
-            .shader_device_address_bit = true,
-            .storage_buffer_bit = true,
-            .transfer_dst_bit = true,
-        },
+        total_acceleration_structures_size,
+        .{ .acceleration_structure_storage_bit_khr = true, .shader_device_address_bit = true },
         .{ .device_local_bit = true },
         .{ .device_address_bit = true },
     );
-    errdefer gpu_buffer.deinit(gc);
+    errdefer acceleration_structures_buffer.deinit(gc);
 
-    try gpu_buffer.oneTimeCopyFrom(
-        staging_buffer,
+    const scratch_buffer = try Buffer.init(
         gc,
-        pool,
-        total_size,
+        total_scratch_size,
+        .{ .storage_buffer_bit = true, .shader_device_address_bit = true },
+        .{ .device_local_bit = true },
+        .{ .device_address_bit = true },
     );
+    defer scratch_buffer.deinit(gc);
 
-    var blas_index: usize = 0;
-    const blases = try allocator.alloc(Blas, scene.mesh_indices.len);
-    errdefer {
-        for (blases[0..blas_index]) |blas| {
-            blas.deinit(gc);
-        }
-        allocator.free(blases);
-    }
+    const build_range_infos = try tmp_arena_allocator.alloc([*]vk.AccelerationStructureBuildRangeInfoKHR, scene.mesh_indices.len);
 
-    const buffer_address = gc.device.getBufferDeviceAddressKHR(
-        &.{ .buffer = gpu_buffer.buffer },
-    );
+    var scratch_buffer_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = scratch_buffer.buffer });
+    var acceleration_structure_offset: vk.DeviceSize = 0;
+    for (acceleration_structures, acceleration_structure_addresses, build_range_infos, infos, sizes, scene.mesh_indices) |*as, *as_address, *br_info, *info, *size, mesh| {
+        as.* = try gc.device.createAccelerationStructureKHR(&.{
+            .buffer = acceleration_structures_buffer.buffer,
+            .offset = acceleration_structure_offset,
+            .size = size.acceleration_structure_size,
+            .type = .bottom_level_khr,
+        }, null);
+        acceleration_structure_offset += std.mem.alignForward(u64, size.acceleration_structure_size, 256);
 
-    const obj_descs = try allocator.alloc(ObjDesc, blases.len);
-    errdefer allocator.free(obj_descs);
+        as_address.* = gc.device.getAccelerationStructureDeviceAddressKHR(&.{
+            .acceleration_structure = as.*,
+        });
 
-    for (scene.mesh_indices, 0..) |mesh, i| {
-        obj_descs[i] = .{
-            .index_address = buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
-            .normal_address = buffer_address + normals_begin + mesh.vertex_start * @sizeOf([4]f32),
-            .tangent_address = buffer_address + tangents_begin + mesh.vertex_start * @sizeOf([4]f32),
-            .uv_address = buffer_address + uvs_begin + mesh.vertex_start * @sizeOf([2]f32),
-            .material_address = buffer_address + material_indices_begin + (mesh.index_start / 3) * @sizeOf(u32),
+        info.dst_acceleration_structure = as.*;
+        info.scratch_data = .{ .device_address = scratch_buffer_address };
+        scratch_buffer_address += size.build_scratch_size;
+
+        const build_range_info = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildRangeInfoKHR, 1);
+        build_range_info[0] = .{
+            .primitive_count = (mesh.index_end - mesh.index_start) / 3,
+            .primitive_offset = 0,
+            .first_vertex = 0,
+            .transform_offset = 0,
         };
-        blases[blas_index] = try Blas.init(
-            gc,
-            pool,
-            buffer_address + positions_begin + mesh.vertex_start * @sizeOf([4]f32),
-            buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
-            (mesh.index_end - mesh.index_start) / 3,
-            mesh.vertex_end - mesh.vertex_start,
-        );
-        blas_index += 1;
+        br_info.* = build_range_info.ptr;
+
+        acceleration_structure_index += 1;
     }
+
+    var cmdbuf: vk.CommandBuffer = undefined;
+    try gc.device.allocateCommandBuffers(&.{
+        .command_pool = pool,
+        .level = .primary,
+        .command_buffer_count = 1,
+    }, @ptrCast(&cmdbuf));
+    defer gc.device.freeCommandBuffers(pool, 1, @ptrCast(&cmdbuf));
+
+    try gc.device.beginCommandBuffer(cmdbuf, &.{
+        .flags = .{ .one_time_submit_bit = true },
+    });
+
+    gc.device.cmdBuildAccelerationStructuresKHR(
+        cmdbuf,
+        @intCast(infos.len),
+        infos.ptr,
+        @ptrCast(build_range_infos.ptr),
+    );
+    try gc.device.endCommandBuffer(cmdbuf);
+
+    const si = vk.SubmitInfo{
+        .command_buffer_count = 1,
+        .p_command_buffers = @ptrCast(&cmdbuf),
+        .p_wait_dst_stage_mask = undefined,
+    };
+    try gc.device.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
+    try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 
     return .{
-        .blases = blases,
-        .buffer = gpu_buffer,
-        .obj_descs = obj_descs,
+        .mesh_buffer = mesh_buffer,
+        .obj_descs = try Buffer.initAndUpload(
+            gc,
+            ObjDesc,
+            obj_descs,
+            .{
+                .shader_device_address_bit = true,
+                .storage_buffer_bit = true,
+            },
+            .{ .device_local_bit = true },
+            .{ .device_address_bit = true },
+            pool,
+        ),
+        .acceleration_structure_buffer = acceleration_structures_buffer,
+        .acceleration_structures = acceleration_structures,
+        .acceleration_structure_addresses = acceleration_structure_addresses,
     };
 }
 
@@ -400,16 +534,13 @@ fn createTextures(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
     materials: []const Scene.Material,
-    allocator: std.mem.Allocator,
+    arena_allocator: std.mem.Allocator,
 ) ![]const Image {
     var texture_index: usize = 0;
-    const textures = try allocator.alloc(Image, materials.len);
-    errdefer {
-        for (0..texture_index) |i| {
-            textures[i].deinit(gc);
-        }
-        allocator.free(textures);
-    }
+    const textures = try arena_allocator.alloc(Image, materials.len);
+    errdefer for (0..texture_index) |i| {
+        textures[i].deinit(gc);
+    };
 
     for (materials, textures) |material, *texture| {
         switch (material) {
