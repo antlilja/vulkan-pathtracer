@@ -23,13 +23,13 @@
             .url = "https://github.com/jkuhlmann/cgltf/archive/de399881c65c438a635627c749440eeea7e05599.tar.gz",
             .hash = "12200fb887b4bf7b2d847f4f660f8ea59017e02f25aee081b8555b55011392f9068e",
         },
-        .stb = .{
-            .url = "https://github.com/nothings/stb/archive/ae721c50eaf761660b4f90cc590453cdb0c2acd0.tar.gz",
-            .hash = "1220619c06a947cfacce985293ff16994db6058f2369d3c2ffcf9da60d7caa8b2f9b",
-        },
         .clap = .{
             .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
             .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
+        },
+        .zigimg = .{
+            .url = "https://github.com/zigimg/zigimg/archive/d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d.tar.gz",
+            .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
         },
         .nuklear = .{
             .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/34ea8bb042e5b6145395e2955bea82c61d8363e1.tar.gz",

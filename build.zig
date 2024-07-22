@@ -22,6 +22,11 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const zi_dep = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const cgltf_lib = compileCHeaderOnlyLib(
         b,
         target,
@@ -30,16 +35,6 @@ pub fn build(b: *std.Build) !void {
         "cgltf.h",
         "",
         &.{"-DCGLTF_IMPLEMENTATION"},
-    );
-
-    const stb_image_lib = compileCHeaderOnlyLib(
-        b,
-        target,
-        optimize,
-        "stb",
-        "stb_image.h",
-        "",
-        &.{"-DSTB_IMAGE_IMPLEMENTATION"},
     );
 
     const nuklear_lib = compileCHeaderOnlyLib(
@@ -70,8 +65,8 @@ pub fn build(b: *std.Build) !void {
     });
     exe.root_module.addImport("zig-window", zw_dep.module("zig-window"));
     exe.root_module.addImport("clap", clap_dep.module("clap"));
+    exe.root_module.addImport("zigimg", zi_dep.module("zigimg"));
     exe.linkLibrary(cgltf_lib);
-    exe.linkLibrary(stb_image_lib);
     exe.linkLibrary(nuklear_lib);
     b.installArtifact(exe);
 

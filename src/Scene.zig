@@ -4,8 +4,9 @@ const Mat4 = @import("Mat4.zig");
 
 const c = @cImport({
     @cInclude("cgltf.h");
-    @cInclude("stb_image.h");
 });
+
+const zi = @import("zigimg");
 
 const Self = @This();
 
@@ -75,9 +76,7 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
 
     try self.loadMeshes(gltf_data, allocator);
 
-    const scene_dirname = std.fs.path.dirname(path) orelse "";
-    try self.loadMaterials(gltf_data, scene_dirname, allocator);
-
+    try self.loadMaterials(gltf_data, std.fs.cwd(), allocator);
 
     try self.loadScene(gltf_data, allocator);
 
@@ -285,7 +284,7 @@ fn loadMeshes(
 fn loadMaterials(
     self: *Self,
     gltf_data: *const c.cgltf_data,
-    cwd_path: []const u8,
+    dir: std.fs.Dir,
     allocator: std.mem.Allocator,
 ) !void {
     const arena_allocator = self.arena.allocator();
@@ -314,7 +313,7 @@ fn loadMaterials(
 
         albedo.* = try loadTexture(
             material.pbr_metallic_roughness.base_color_texture.texture,
-            cwd_path,
+            dir,
             buffer,
             .{
                 1.0,
@@ -328,7 +327,7 @@ fn loadMaterials(
 
         metal_roughness.* = try loadTexture(
             material.pbr_metallic_roughness.metallic_roughness_texture.texture,
-            cwd_path,
+            dir,
             buffer,
             .{
                 0.0,
@@ -342,7 +341,7 @@ fn loadMaterials(
 
         emissive.* = try loadTexture(
             material.emissive_texture.texture,
-            cwd_path,
+            dir,
             buffer,
             .{
                 0.0,
@@ -356,7 +355,7 @@ fn loadMaterials(
 
         normal.* = try loadTexture(
             material.normal_texture.texture,
-            cwd_path,
+            dir,
             buffer,
             .{
                 0.0,
@@ -377,7 +376,7 @@ fn loadMaterials(
 
 fn loadTexture(
     maybe_texture: ?*const c.cgltf_texture,
-    cwd_path: []const u8,
+    dir: std.fs.Dir,
     buffer: [*]const u8,
     placeholder_color: [4]f32,
     allocator: std.mem.Allocator,
@@ -385,59 +384,56 @@ fn loadTexture(
 ) !Material {
     if (maybe_texture) |texture| {
         if (texture.image.*.uri != null) {
-            const albedo_path = try std.fs.path.joinZ(allocator, &.{
-                cwd_path,
-                std.mem.span(texture.*.image.*.uri),
-            });
-            defer allocator.free(albedo_path);
+            var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
+            defer file.close();
 
-            var w: c_int = undefined;
-            var h: c_int = undefined;
-            var n: c_int = undefined;
-            const image_data = c.stbi_load(
-                albedo_path,
-                &w,
-                &h,
-                &n,
-                4,
-            ) orelse return error.FailedToLoadMaterials;
-            defer c.stbi_image_free(image_data);
+            var image = try zi.Image.fromFile(allocator, &file);
+            defer image.deinit();
 
-            const width: u32 = @intCast(w);
-            const height: u32 = @intCast(h);
+            const image_bytes = switch (image.pixelFormat()) {
+                .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
+                else => blk: {
+                    const pixels = try zi.PixelFormatConverter.convert(
+                        arena_allocator,
+                        &image.pixels,
+                        .rgba32,
+                    );
+
+                    break :blk pixels.asConstBytes();
+                },
+            };
 
             return .{
                 .texture = .{
-                    .data = try arena_allocator.dupe(u8, image_data[0..(width * height * 4)]),
-                    .width = width,
-                    .height = height,
+                    .data = image_bytes,
+                    .width = @intCast(image.width),
+                    .height = @intCast(image.height),
                 },
             };
         } else if (texture.image.*.buffer_view != null) {
-            const image_buffer = buffer[texture.*.image.*.buffer_view.*.offset..][0..texture.*.image.*.buffer_view.*.size];
+            const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
 
-            var w: c_int = undefined;
-            var h: c_int = undefined;
-            var n: c_int = undefined;
+            var image = try zi.Image.fromMemory(allocator, image_buffer);
+            defer image.deinit();
 
-            const image_data = c.stbi_load_from_memory(
-                @ptrCast(image_buffer.ptr),
-                @intCast(image_buffer.len),
-                &w,
-                &h,
-                &n,
-                4,
-            ) orelse return error.FailedToLoadMaterials;
-            defer c.stbi_image_free(image_data);
+            const image_bytes = switch (image.pixelFormat()) {
+                .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
+                else => blk: {
+                    const pixels = try zi.PixelFormatConverter.convert(
+                        arena_allocator,
+                        &image.pixels,
+                        .rgba32,
+                    );
 
-            const width: u32 = @intCast(w);
-            const height: u32 = @intCast(h);
+                    break :blk pixels.asConstBytes();
+                },
+            };
 
             return .{
                 .texture = .{
-                    .data = try arena_allocator.dupe(u8, image_data[0..(width * height * 4)]),
-                    .width = width,
-                    .height = height,
+                    .data = image_bytes,
+                    .width = @intCast(image.width),
+                    .height = @intCast(image.height),
                 },
             };
         }
