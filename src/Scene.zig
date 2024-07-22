@@ -471,7 +471,6 @@ fn loadSceneImpl(
 
         try instances.append(.{
             .mesh_index = @divExact(@intFromPtr(node.mesh) - @intFromPtr(gltf_data.meshes), @sizeOf(c.cgltf_mesh)),
-            // .transform = matrix,
             .transform = matrix.transpose(),
         });
     }
