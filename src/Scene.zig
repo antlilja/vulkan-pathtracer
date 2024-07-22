@@ -46,6 +46,8 @@ normal_textures: []const Material,
 
 instances: []const Instance,
 
+arena: std.heap.ArenaAllocator,
+
 pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
     const gltf_data = blk: {
         const path_c = try allocator.dupeZ(u8, path);
@@ -68,101 +70,22 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
     defer c.cgltf_free(@ptrCast(gltf_data));
 
     var self: Self = undefined;
+    self.arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    errdefer self.arena.deinit();
+
     try self.loadMeshes(gltf_data, allocator);
-    errdefer {
-        allocator.free(self.mesh_indices);
-        allocator.free(self.material_indices);
-        allocator.free(self.uvs);
-        allocator.free(self.normals);
-        allocator.free(self.positions);
-        allocator.free(self.indices);
-    }
 
     const scene_dirname = std.fs.path.dirname(path) orelse "";
     try self.loadMaterials(gltf_data, scene_dirname, allocator);
-    errdefer {
-        for (self.normal_textures) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(self.normal_textures);
 
-        for (self.emissive_textures) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(self.emissive_textures);
-
-        for (self.metal_roughness_textures) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(self.metal_roughness_textures);
-
-        for (self.albedo_textures) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(self.albedo_textures);
-    }
 
     try self.loadScene(gltf_data, allocator);
-    errdefer allocator.free(self.instances);
 
     return self;
 }
 
-pub fn deinit(self: *const Self, allocator: std.mem.Allocator) void {
-    allocator.free(self.instances);
-
-    for (self.normal_textures) |m| {
-        switch (m) {
-            .texture => |t| allocator.free(t.data),
-            .color => {},
-        }
-    }
-    allocator.free(self.normal_textures);
-
-    for (self.emissive_textures) |m| {
-        switch (m) {
-            .texture => |t| allocator.free(t.data),
-            .color => {},
-        }
-    }
-    allocator.free(self.emissive_textures);
-
-    for (self.metal_roughness_textures) |m| {
-        switch (m) {
-            .texture => |t| allocator.free(t.data),
-            .color => {},
-        }
-    }
-    allocator.free(self.metal_roughness_textures);
-
-    for (self.albedo_textures) |m| {
-        switch (m) {
-            .texture => |t| allocator.free(t.data),
-            .color => {},
-        }
-    }
-    allocator.free(self.albedo_textures);
-
-    allocator.free(self.mesh_indices);
-
-    allocator.free(self.material_indices);
-    allocator.free(self.uvs);
-    allocator.free(self.tangents);
-    allocator.free(self.normals);
-    allocator.free(self.positions);
-    allocator.free(self.indices);
+pub fn deinit(self: *const Self) void {
+    self.arena.deinit();
 }
 
 fn loadMeshes(
@@ -170,6 +93,8 @@ fn loadMeshes(
     gltf_data: *const c.cgltf_data,
     allocator: std.mem.Allocator,
 ) !void {
+    const arena_allocator = self.arena.allocator();
+
     if (gltf_data.buffers_count != 1) return error.FailedToLoadGLTF;
 
     const buffer: [*]const u8 = @ptrCast(gltf_data.buffers.*.data);
@@ -192,8 +117,7 @@ fn loadMeshes(
     var material_indices = std.ArrayList(u32).init(allocator);
     defer material_indices.deinit();
 
-    const mesh_indices = try allocator.alloc(MeshIndices, gltf_data.meshes_count);
-    errdefer allocator.free(mesh_indices);
+    const mesh_indices = try arena_allocator.alloc(MeshIndices, gltf_data.meshes_count);
 
     for (gltf_data.meshes[0..gltf_data.meshes_count], 0..) |mesh, i| {
         const index_start = indices.items.len;
@@ -348,12 +272,12 @@ fn loadMeshes(
         };
     }
 
-    self.indices = try indices.toOwnedSlice();
-    self.positions = try positions.toOwnedSlice();
-    self.normals = try normals.toOwnedSlice();
-    self.tangents = try tangents.toOwnedSlice();
-    self.uvs = try uvs.toOwnedSlice();
-    self.material_indices = try material_indices.toOwnedSlice();
+    self.indices = try arena_allocator.dupe(u32, indices.items);
+    self.positions = try arena_allocator.dupe([4]f32, positions.items);
+    self.normals = try arena_allocator.dupe([4]f32, normals.items);
+    self.tangents = try arena_allocator.dupe([4]f32, tangents.items);
+    self.uvs = try arena_allocator.dupe([2]f32, uvs.items);
+    self.material_indices = try arena_allocator.dupe(u32, material_indices.items);
 
     self.mesh_indices = mesh_indices;
 }
@@ -364,60 +288,31 @@ fn loadMaterials(
     cwd_path: []const u8,
     allocator: std.mem.Allocator,
 ) !void {
-    var albedo_index: usize = 0;
-    const albedo_textures = try allocator.alloc(Material, gltf_data.materials_count);
-    errdefer {
-        for (albedo_textures[0..albedo_index]) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(albedo_textures);
-    }
+    const arena_allocator = self.arena.allocator();
 
-    var metal_index: usize = 0;
-    const metal_roughness_textures = try allocator.alloc(Material, gltf_data.materials_count);
-    errdefer {
-        for (metal_roughness_textures[0..metal_index]) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(metal_roughness_textures);
-    }
-
-    var emissive_index: usize = 0;
-    const emissive_textures = try allocator.alloc(Material, gltf_data.materials_count);
-    errdefer {
-        for (emissive_textures[0..metal_index]) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(emissive_textures);
-    }
-
-    var normal_index: usize = 0;
-    const normal_textures = try allocator.alloc(Material, gltf_data.materials_count);
-    errdefer {
-        for (normal_textures[0..metal_index]) |m| {
-            switch (m) {
-                .texture => |t| allocator.free(t.data),
-                .color => {},
-            }
-        }
-        allocator.free(normal_textures);
-    }
+    const albedo_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
+    const metal_roughness_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
+    const emissive_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
+    const normal_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
 
     const buffer: [*]const u8 = @ptrCast(gltf_data.buffers.*.data);
 
-    for (gltf_data.materials[0..gltf_data.materials_count]) |material| {
+    for (
+        gltf_data.materials[0..gltf_data.materials_count],
+        albedo_textures,
+        metal_roughness_textures,
+        emissive_textures,
+        normal_textures,
+    ) |
+        material,
+        *albedo,
+        *metal_roughness,
+        *emissive,
+        *normal,
+    | {
         if (material.has_pbr_metallic_roughness == 0) return error.FailedToLoadMaterials;
 
-        albedo_textures[albedo_index] = try loadTexture(
+        albedo.* = try loadTexture(
             material.pbr_metallic_roughness.base_color_texture.texture,
             cwd_path,
             buffer,
@@ -428,10 +323,10 @@ fn loadMaterials(
                 material.pbr_metallic_roughness.base_color_factor[0],
             },
             allocator,
+            arena_allocator,
         );
-        albedo_index += 1;
 
-        metal_roughness_textures[metal_index] = try loadTexture(
+        metal_roughness.* = try loadTexture(
             material.pbr_metallic_roughness.metallic_roughness_texture.texture,
             cwd_path,
             buffer,
@@ -442,10 +337,10 @@ fn loadMaterials(
                 0.0,
             },
             allocator,
+            arena_allocator,
         );
-        metal_index += 1;
 
-        emissive_textures[emissive_index] = try loadTexture(
+        emissive.* = try loadTexture(
             material.emissive_texture.texture,
             cwd_path,
             buffer,
@@ -456,10 +351,10 @@ fn loadMaterials(
                 material.emissive_factor[0],
             },
             allocator,
+            arena_allocator,
         );
-        emissive_index += 1;
 
-        normal_textures[normal_index] = try loadTexture(
+        normal.* = try loadTexture(
             material.normal_texture.texture,
             cwd_path,
             buffer,
@@ -470,22 +365,23 @@ fn loadMaterials(
                 0.5,
             },
             allocator,
+            arena_allocator,
         );
-        normal_index += 1;
     }
 
-    self.normal_textures = normal_textures;
-    self.emissive_textures = emissive_textures;
-    self.metal_roughness_textures = metal_roughness_textures;
     self.albedo_textures = albedo_textures;
+    self.metal_roughness_textures = metal_roughness_textures;
+    self.emissive_textures = emissive_textures;
+    self.normal_textures = normal_textures;
 }
 
-pub fn loadTexture(
+fn loadTexture(
     maybe_texture: ?*const c.cgltf_texture,
     cwd_path: []const u8,
     buffer: [*]const u8,
     placeholder_color: [4]f32,
     allocator: std.mem.Allocator,
+    arena_allocator: std.mem.Allocator,
 ) !Material {
     if (maybe_texture) |texture| {
         if (texture.image.*.uri != null) {
@@ -512,7 +408,7 @@ pub fn loadTexture(
 
             return .{
                 .texture = .{
-                    .data = try allocator.dupe(u8, image_data[0..(width * height * 4)]),
+                    .data = try arena_allocator.dupe(u8, image_data[0..(width * height * 4)]),
                     .width = width,
                     .height = height,
                 },
@@ -539,7 +435,7 @@ pub fn loadTexture(
 
             return .{
                 .texture = .{
-                    .data = try allocator.dupe(u8, image_data[0..(width * height * 4)]),
+                    .data = try arena_allocator.dupe(u8, image_data[0..(width * height * 4)]),
                     .width = width,
                     .height = height,
                 },
@@ -556,7 +452,7 @@ fn loadScene(
     allocator: std.mem.Allocator,
 ) !void {
     var instances = std.ArrayList(Instance).init(allocator);
-    errdefer instances.deinit();
+    defer instances.deinit();
 
     for (gltf_data.scene.*.nodes[0..gltf_data.scene.*.nodes_count]) |node| {
         try loadSceneImpl(
@@ -567,7 +463,7 @@ fn loadScene(
         );
     }
 
-    self.instances = try instances.toOwnedSlice();
+    self.instances = try self.arena.allocator().dupe(Instance, instances.items);
 }
 
 fn loadSceneImpl(

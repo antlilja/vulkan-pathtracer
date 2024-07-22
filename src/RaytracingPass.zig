@@ -75,7 +75,7 @@ pub fn init(
     num_bounces: u32,
 ) !Self {
     const scene = try Scene.load(scene_path, allocator);
-    defer scene.deinit(allocator);
+    defer scene.deinit();
 
     const blases_and_buffer = try createBlases(
         gc,
