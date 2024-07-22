@@ -382,64 +382,40 @@ fn loadTexture(
     allocator: std.mem.Allocator,
     arena_allocator: std.mem.Allocator,
 ) !Material {
-    if (maybe_texture) |texture| {
-        if (texture.image.*.uri != null) {
-            var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
-            defer file.close();
+    const texture = maybe_texture orelse return .{ .color = placeholder_color };
 
-            var image = try zi.Image.fromFile(allocator, &file);
-            defer image.deinit();
+    var image = if (texture.image.*.uri != null) blk: {
+        var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
+        defer file.close();
 
-            const image_bytes = switch (image.pixelFormat()) {
-                .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
-                else => blk: {
-                    const pixels = try zi.PixelFormatConverter.convert(
-                        arena_allocator,
-                        &image.pixels,
-                        .rgba32,
-                    );
+        break :blk try zi.Image.fromFile(allocator, &file);
+    } else if (texture.image.*.buffer_view != null) blk: {
+        const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
 
-                    break :blk pixels.asConstBytes();
-                },
-            };
+        break :blk try zi.Image.fromMemory(allocator, image_buffer);
+    } else return .{ .color = placeholder_color };
+    defer image.deinit();
 
-            return .{
-                .texture = .{
-                    .data = image_bytes,
-                    .width = @intCast(image.width),
-                    .height = @intCast(image.height),
-                },
-            };
-        } else if (texture.image.*.buffer_view != null) {
-            const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
+    const image_bytes = switch (image.pixelFormat()) {
+        .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
+        else => blk: {
+            const pixels = try zi.PixelFormatConverter.convert(
+                arena_allocator,
+                &image.pixels,
+                .rgba32,
+            );
 
-            var image = try zi.Image.fromMemory(allocator, image_buffer);
-            defer image.deinit();
+            break :blk pixels.asConstBytes();
+        },
+    };
 
-            const image_bytes = switch (image.pixelFormat()) {
-                .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
-                else => blk: {
-                    const pixels = try zi.PixelFormatConverter.convert(
-                        arena_allocator,
-                        &image.pixels,
-                        .rgba32,
-                    );
-
-                    break :blk pixels.asConstBytes();
-                },
-            };
-
-            return .{
-                .texture = .{
-                    .data = image_bytes,
-                    .width = @intCast(image.width),
-                    .height = @intCast(image.height),
-                },
-            };
-        }
-    }
-
-    return .{ .color = placeholder_color };
+    return .{
+        .texture = .{
+            .data = image_bytes,
+            .width = @intCast(image.width),
+            .height = @intCast(image.height),
+        },
+    };
 }
 
 fn loadScene(
