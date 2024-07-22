@@ -33,10 +33,8 @@ pub fn init(
     tlas: *const Tlas,
     image_view: vk.ImageView,
     obj_desc_buffer: vk.Buffer,
-    albedos: []const Image,
-    metal_roughness: []const Image,
-    emissive: []const Image,
-    normals: []const Image,
+    material_buffer: vk.Buffer,
+    images: []const Image,
     num_samples: u32,
     num_bounces: u32,
     allocator: std.mem.Allocator,
@@ -63,8 +61,8 @@ pub fn init(
     const pool_sizes = [_]vk.DescriptorPoolSize{
         .{ .type = .acceleration_structure_khr, .descriptor_count = 1 },
         .{ .type = .storage_image, .descriptor_count = 1 },
-        .{ .type = .storage_buffer, .descriptor_count = 1 },
-        .{ .type = .combined_image_sampler, .descriptor_count = 4 },
+        .{ .type = .storage_buffer, .descriptor_count = 2 },
+        .{ .type = .combined_image_sampler, .descriptor_count = 1 },
     };
 
     const descriptor_pool = try gc.device.createDescriptorPool(&.{
@@ -95,25 +93,13 @@ pub fn init(
         },
         .{
             .binding = 3,
-            .descriptor_count = @intCast(albedos.len),
-            .descriptor_type = .combined_image_sampler,
+            .descriptor_count = 1,
+            .descriptor_type = .storage_buffer,
             .stage_flags = .{ .closest_hit_bit_khr = true },
         },
         .{
             .binding = 4,
-            .descriptor_count = @intCast(metal_roughness.len),
-            .descriptor_type = .combined_image_sampler,
-            .stage_flags = .{ .closest_hit_bit_khr = true },
-        },
-        .{
-            .binding = 5,
-            .descriptor_count = @intCast(emissive.len),
-            .descriptor_type = .combined_image_sampler,
-            .stage_flags = .{ .closest_hit_bit_khr = true },
-        },
-        .{
-            .binding = 6,
-            .descriptor_count = @intCast(normals.len),
+            .descriptor_count = @intCast(images.len),
             .descriptor_type = .combined_image_sampler,
             .stage_flags = .{ .closest_hit_bit_khr = true },
         },
@@ -150,45 +136,18 @@ pub fn init(
             .range = ~@as(usize, 0),
         };
 
-        const albedo_image_info = try allocator.alloc(vk.DescriptorImageInfo, albedos.len);
-        defer allocator.free(albedo_image_info);
+        const material_buffer_info = vk.DescriptorBufferInfo{
+            .buffer = material_buffer,
+            .offset = 0,
+            .range = ~@as(usize, 0),
+        };
 
-        for (albedos, albedo_image_info) |texture, *info| {
+        const image_infos = try allocator.alloc(vk.DescriptorImageInfo, images.len);
+        defer allocator.free(image_infos);
+
+        for (images, image_infos) |image, *info| {
             info.* = .{
-                .image_view = texture.view,
-                .sampler = sampler,
-                .image_layout = .shader_read_only_optimal,
-            };
-        }
-
-        const metal_roughness_image_info = try allocator.alloc(vk.DescriptorImageInfo, metal_roughness.len);
-        defer allocator.free(metal_roughness_image_info);
-
-        for (metal_roughness, metal_roughness_image_info) |texture, *info| {
-            info.* = .{
-                .image_view = texture.view,
-                .sampler = sampler,
-                .image_layout = .shader_read_only_optimal,
-            };
-        }
-
-        const emissive_image_info = try allocator.alloc(vk.DescriptorImageInfo, emissive.len);
-        defer allocator.free(emissive_image_info);
-
-        for (emissive, emissive_image_info) |texture, *info| {
-            info.* = .{
-                .image_view = texture.view,
-                .sampler = sampler,
-                .image_layout = .shader_read_only_optimal,
-            };
-        }
-
-        const normal_image_info = try allocator.alloc(vk.DescriptorImageInfo, normals.len);
-        defer allocator.free(normal_image_info);
-
-        for (normals, normal_image_info) |texture, *info| {
-            info.* = .{
-                .image_view = texture.view,
+                .image_view = image.view,
                 .sampler = sampler,
                 .image_layout = .shader_read_only_optimal,
             };
@@ -227,40 +186,20 @@ pub fn init(
                 .p_texel_buffer_view = undefined,
             },
             .{
-                .p_image_info = @ptrCast(albedo_image_info),
+                .p_buffer_info = @ptrCast(&material_buffer_info),
                 .dst_set = descriptor_set,
                 .dst_binding = 3,
-                .descriptor_count = @intCast(albedo_image_info.len),
-                .descriptor_type = .combined_image_sampler,
+                .descriptor_count = 1,
+                .descriptor_type = .storage_buffer,
                 .dst_array_element = 0,
-                .p_buffer_info = undefined,
+                .p_image_info = undefined,
                 .p_texel_buffer_view = undefined,
             },
             .{
-                .p_image_info = @ptrCast(metal_roughness_image_info),
+                .p_image_info = @ptrCast(image_infos),
                 .dst_set = descriptor_set,
                 .dst_binding = 4,
-                .descriptor_count = @intCast(metal_roughness_image_info.len),
-                .descriptor_type = .combined_image_sampler,
-                .dst_array_element = 0,
-                .p_buffer_info = undefined,
-                .p_texel_buffer_view = undefined,
-            },
-            .{
-                .p_image_info = @ptrCast(emissive_image_info),
-                .dst_set = descriptor_set,
-                .dst_binding = 5,
-                .descriptor_count = @intCast(emissive_image_info.len),
-                .descriptor_type = .combined_image_sampler,
-                .dst_array_element = 0,
-                .p_buffer_info = undefined,
-                .p_texel_buffer_view = undefined,
-            },
-            .{
-                .p_image_info = @ptrCast(normal_image_info),
-                .dst_set = descriptor_set,
-                .dst_binding = 6,
-                .descriptor_count = @intCast(normal_image_info.len),
+                .descriptor_count = @intCast(image_infos.len),
                 .descriptor_type = .combined_image_sampler,
                 .dst_array_element = 0,
                 .p_buffer_info = undefined,

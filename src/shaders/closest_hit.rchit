@@ -14,7 +14,14 @@ struct ObjDesc {
     uint64_t normal_address;
     uint64_t tangent_address;
     uint64_t uv_address;
-    uint64_t material_address;
+    uint64_t material_id_address;
+};
+
+struct Material {
+    uint albedo;
+    uint metal_roughness;
+    uint normal;
+    uint emissive;
 };
 
 struct Payload {
@@ -41,7 +48,7 @@ layout(buffer_reference, scalar) readonly buffer Uvs {
 layout(buffer_reference, scalar) readonly buffer Indices {
     uint i[];
 };
-layout(buffer_reference, scalar) readonly buffer Materials {
+layout(buffer_reference, scalar) readonly buffer MaterialIds {
     uint i[];
 };
 
@@ -49,10 +56,10 @@ layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 2, set = 0) readonly buffer ObjDescs {
     ObjDesc i[];
 } obj_descs;
-layout(binding = 3, set = 0) uniform sampler2D albedos[];
-layout(binding = 4, set = 0) uniform sampler2D metal_roughness[];
-layout(binding = 5, set = 0) uniform sampler2D emissives[];
-layout(binding = 6, set = 0) uniform sampler2D normal_textures[];
+layout(binding = 3, set = 0) readonly buffer Materials {
+    Material i[];
+} materials;
+layout(binding = 4, set = 0) uniform sampler2D textures[];
 
 mat3 normalMatrix(vec3 normal) {
     vec3 orthogonal;
@@ -75,7 +82,7 @@ void main() {
     Normals normals = Normals(obj_desc.normal_address);
     Tangents tangents = Tangents(obj_desc.tangent_address);
     Uvs uvs = Uvs(obj_desc.uv_address);
-    Materials materials = Materials(obj_desc.material_address);
+    MaterialIds material_ids = MaterialIds(obj_desc.material_id_address);
 
     const uvec3 index = uvec3(indices.i[3 * gl_PrimitiveID], indices.i[3 * gl_PrimitiveID + 1], indices.i[3 * gl_PrimitiveID + 2]);
 
@@ -84,10 +91,25 @@ void main() {
     const vec2 uv2 = uvs.v[index.z];
     const vec2 uv = vec2(uv0 * coords.x + uv1 * coords.y + uv2 * coords.z);
 
-    const uint material_id = materials.i[gl_PrimitiveID];
+    const uint material_id = material_ids.i[gl_PrimitiveID];
+    const Material material = materials.i[material_id];
 
-    payload.color += texture(emissives[material_id], uv).xyz * 10.0 * payload.atten;
-    payload.atten *= texture(albedos[material_id], uv).xyz * 0.5;
+    vec3 emissive;
+    if ((material.emissive & 0x80000000) != 0) {
+        emissive = texture(textures[material.emissive & 0x7FFFFFFF], uv).rgb;
+    } else {
+        emissive = unpackUnorm4x8(material.emissive).rgb;
+    }
+
+    vec3 albedo;
+    if ((material.albedo & 0x80000000) != 0) {
+        albedo = texture(textures[material.albedo & 0x7FFFFFFF], uv).rgb;
+    } else {
+        albedo = unpackUnorm4x8(material.albedo).rgb;
+    }
+
+    payload.color += emissive * 10.0 * payload.atten;
+    payload.atten *= albedo * 0.5;
 
     if (payload.depth < NUM_BOUNCES) {
         const vec3 n0 = normals.v[index.x].xyz;
@@ -105,17 +127,26 @@ void main() {
 
         const vec3 surface_bitangent = normalize(cross(surface_normal, surface_tangent));
 
-        const mat3 TBN = mat3(
-                surface_tangent,
-                surface_bitangent,
-                surface_normal
-            ) * mat3(gl_ObjectToWorldEXT);
+        float roughness;
+        if ((material.metal_roughness & 0x80000000) != 0) {
+            const vec3 metal_roughness = texture(textures[material.metal_roughness & 0x7FFFFFFF], uv).rgb;
+            roughness = metal_roughness.g;
+        } else {
+            const vec3 metal_roughness = unpackUnorm4x8(material.metal_roughness).rgb;
+            roughness = metal_roughness.g;
+        }
 
-        const vec3 metal_roughness = texture(metal_roughness[material_id], uv).xyz;
-        const float roughness = metal_roughness.y;
-
-        const vec3 normal_texture = normalize(2.0 * texture(normal_textures[material_id], uv).rgb - vec3(1.0));
-        const vec3 normal = normalize(TBN * normal_texture);
+        vec3 normal;
+        if ((material.normal & 0x80000000) != 0) {
+            const mat3 TBN = mat3(
+                    surface_tangent,
+                    surface_bitangent,
+                    surface_normal
+                ) * mat3(gl_ObjectToWorldEXT);
+            normal = normalize(TBN * normalize(2.0 * texture(textures[material.normal & 0x7FFFFFFF], uv).rgb - vec3(1.0)));
+        } else {
+            normal = surface_normal * mat3(gl_ObjectToWorldEXT);
+        }
 
         const float tmin = 0.001;
         const float tmax = 10000.0;

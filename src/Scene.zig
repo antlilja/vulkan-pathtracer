@@ -10,6 +10,11 @@ const zi = @import("zigimg");
 
 const Self = @This();
 
+pub const Instance = struct {
+    mesh_index: usize,
+    transform: Mat4,
+};
+
 pub const MeshIndices = struct {
     index_start: u32,
     index_end: u32,
@@ -17,19 +22,22 @@ pub const MeshIndices = struct {
     vertex_end: u32,
 };
 
-pub const Material = union(enum) {
-    texture: struct {
-        data: []const u8,
-        width: u32,
-        height: u32,
-    },
-    color: [4]f32,
+pub const Material = struct {
+    albedo: u32,
+    metal_roughness: u32,
+    normal: u32,
+    emissive: u32,
 };
 
-pub const Instance = struct {
-    mesh_index: usize,
-    transform: Mat4,
+pub const Texture = struct {
+    data: []const u8,
+    width: u32,
+    height: u32,
 };
+
+instances: []const Instance,
+
+mesh_indices: []const MeshIndices,
 
 indices: []const u32,
 positions: []const [4]f32,
@@ -38,14 +46,9 @@ tangents: []const [4]f32,
 uvs: []const [2]f32,
 material_indices: []const u32,
 
-mesh_indices: []const MeshIndices,
+materials: []const Material,
 
-albedo_textures: []const Material,
-metal_roughness_textures: []const Material,
-emissive_textures: []const Material,
-normal_textures: []const Material,
-
-instances: []const Instance,
+textures: []const Texture,
 
 arena: std.heap.ArenaAllocator,
 
@@ -76,7 +79,9 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
 
     try self.loadMeshes(gltf_data, allocator);
 
-    try self.loadMaterials(gltf_data, std.fs.cwd(), allocator);
+    try self.loadTextures(gltf_data, std.fs.cwd(), allocator);
+
+    try self.loadMaterials(gltf_data);
 
     try self.loadScene(gltf_data, allocator);
 
@@ -281,141 +286,132 @@ fn loadMeshes(
     self.mesh_indices = mesh_indices;
 }
 
-fn loadMaterials(
+fn loadTextures(
     self: *Self,
     gltf_data: *const c.cgltf_data,
     dir: std.fs.Dir,
     allocator: std.mem.Allocator,
 ) !void {
+    if (gltf_data.textures == null) {
+        self.textures = &.{};
+        return;
+    }
     const arena_allocator = self.arena.allocator();
 
-    const albedo_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
-    const metal_roughness_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
-    const emissive_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
-    const normal_textures = try arena_allocator.alloc(Material, gltf_data.materials_count);
+    const textures = try arena_allocator.alloc(Texture, gltf_data.textures_count);
 
     const buffer: [*]const u8 = @ptrCast(gltf_data.buffers.*.data);
 
-    for (
-        gltf_data.materials[0..gltf_data.materials_count],
-        albedo_textures,
-        metal_roughness_textures,
-        emissive_textures,
-        normal_textures,
-    ) |
-        material,
-        *albedo,
-        *metal_roughness,
-        *emissive,
-        *normal,
-    | {
-        if (material.has_pbr_metallic_roughness == 0) return error.FailedToLoadMaterials;
+    for (gltf_data.textures[0..gltf_data.textures_count], textures) |texture, *out_texture| {
+        var image = if (texture.image.*.uri != null) blk: {
+            var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
+            defer file.close();
 
-        albedo.* = try loadTexture(
-            material.pbr_metallic_roughness.base_color_texture.texture,
-            dir,
-            buffer,
-            .{
-                1.0,
-                material.pbr_metallic_roughness.base_color_factor[2],
-                material.pbr_metallic_roughness.base_color_factor[1],
-                material.pbr_metallic_roughness.base_color_factor[0],
+            break :blk try zi.Image.fromFile(allocator, &file);
+        } else if (texture.image.*.buffer_view != null) blk: {
+            const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
+
+            break :blk try zi.Image.fromMemory(allocator, image_buffer);
+        } else return error.NoTextureFound;
+        defer image.deinit();
+
+        const image_bytes = switch (image.pixelFormat()) {
+            .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
+            else => blk: {
+                const pixels = try zi.PixelFormatConverter.convert(
+                    arena_allocator,
+                    &image.pixels,
+                    .rgba32,
+                );
+
+                break :blk pixels.asConstBytes();
             },
-            allocator,
-            arena_allocator,
-        );
+        };
 
-        metal_roughness.* = try loadTexture(
-            material.pbr_metallic_roughness.metallic_roughness_texture.texture,
-            dir,
-            buffer,
-            .{
-                0.0,
-                material.pbr_metallic_roughness.metallic_factor,
-                material.pbr_metallic_roughness.roughness_factor,
-                0.0,
-            },
-            allocator,
-            arena_allocator,
-        );
-
-        emissive.* = try loadTexture(
-            material.emissive_texture.texture,
-            dir,
-            buffer,
-            .{
-                0.0,
-                material.emissive_factor[2],
-                material.emissive_factor[1],
-                material.emissive_factor[0],
-            },
-            allocator,
-            arena_allocator,
-        );
-
-        normal.* = try loadTexture(
-            material.normal_texture.texture,
-            dir,
-            buffer,
-            .{
-                0.0,
-                1.0,
-                0.5,
-                0.5,
-            },
-            allocator,
-            arena_allocator,
-        );
-    }
-
-    self.albedo_textures = albedo_textures;
-    self.metal_roughness_textures = metal_roughness_textures;
-    self.emissive_textures = emissive_textures;
-    self.normal_textures = normal_textures;
-}
-
-fn loadTexture(
-    maybe_texture: ?*const c.cgltf_texture,
-    dir: std.fs.Dir,
-    buffer: [*]const u8,
-    placeholder_color: [4]f32,
-    allocator: std.mem.Allocator,
-    arena_allocator: std.mem.Allocator,
-) !Material {
-    const texture = maybe_texture orelse return .{ .color = placeholder_color };
-
-    var image = if (texture.image.*.uri != null) blk: {
-        var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
-        defer file.close();
-
-        break :blk try zi.Image.fromFile(allocator, &file);
-    } else if (texture.image.*.buffer_view != null) blk: {
-        const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
-
-        break :blk try zi.Image.fromMemory(allocator, image_buffer);
-    } else return .{ .color = placeholder_color };
-    defer image.deinit();
-
-    const image_bytes = switch (image.pixelFormat()) {
-        .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
-        else => blk: {
-            const pixels = try zi.PixelFormatConverter.convert(
-                arena_allocator,
-                &image.pixels,
-                .rgba32,
-            );
-
-            break :blk pixels.asConstBytes();
-        },
-    };
-
-    return .{
-        .texture = .{
+        out_texture.* = .{
             .data = image_bytes,
             .width = @intCast(image.width),
             .height = @intCast(image.height),
-        },
-    };
+        };
+    }
+
+    self.textures = textures;
+}
+
+fn loadMaterials(
+    self: *Self,
+    gltf_data: *const c.cgltf_data,
+) !void {
+    const materials = try self.arena.allocator().alloc(Material, gltf_data.materials_count);
+
+    for (gltf_data.materials[0..gltf_data.materials_count], materials) |material, *out_material| {
+        if (material.has_pbr_metallic_roughness == 0) return error.NonPbrMaterial;
+        const Color = packed struct(u32) {
+            r: u8,
+            g: u8,
+            b: u8,
+            a: u8,
+        };
+
+        const has_albedo = material.pbr_metallic_roughness.base_color_texture.texture != null;
+        const has_metal_roughness = material.pbr_metallic_roughness.metallic_roughness_texture.texture != null;
+        const has_normal = material.normal_texture.texture != null;
+        const has_emissive = material.emissive_texture.texture != null;
+
+        const albedo_color: Color = .{
+            .r = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[0] * 255.0),
+            .b = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[1] * 255.0),
+            .g = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[2] * 255.0),
+            .a = 0,
+        };
+
+        const metal_roughness_color: Color = .{
+            .r = 0,
+            .g = @intFromFloat(material.pbr_metallic_roughness.roughness_factor * 255.0),
+            .b = @intFromFloat(material.pbr_metallic_roughness.metallic_factor * 255.0),
+            .a = 0,
+        };
+
+        const emissive_color: Color = .{
+            .r = @intFromFloat(material.emissive_factor[0] * 255.0),
+            .b = @intFromFloat(material.emissive_factor[1] * 255.0),
+            .g = @intFromFloat(material.emissive_factor[2] * 255.0),
+            .a = 0,
+        };
+
+        const albedo: u32 = if (material.pbr_metallic_roughness.base_color_texture.texture != null)
+            @intCast((@intFromPtr(material.pbr_metallic_roughness.base_color_texture.texture) -
+                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        else
+            @bitCast(albedo_color);
+
+        const metal_roughness: u32 = if (material.pbr_metallic_roughness.metallic_roughness_texture.texture != null)
+            @intCast((@intFromPtr(material.pbr_metallic_roughness.metallic_roughness_texture.texture) -
+                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        else
+            @bitCast(metal_roughness_color);
+
+        const normal: u32 = if (material.normal_texture.texture != null)
+            @intCast((@intFromPtr(material.normal_texture.texture) -
+                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        else
+            0;
+
+        const emissive: u32 = if (material.emissive_texture.texture != null)
+            @intCast((@intFromPtr(material.emissive_texture.texture) -
+                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        else
+            @bitCast(emissive_color);
+
+        out_material.* = .{
+            .albedo = albedo | @as(u32, @intFromBool(has_albedo)) << 31,
+            .metal_roughness = metal_roughness | @as(u32, @intFromBool(has_metal_roughness)) << 31,
+            .normal = normal | @as(u32, @intFromBool(has_normal)) << 31,
+            .emissive = emissive | @as(u32, @intFromBool(has_emissive)) << 31,
+        };
+    }
+
+    self.materials = materials;
 }
 
 fn loadScene(

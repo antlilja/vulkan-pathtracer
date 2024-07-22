@@ -58,12 +58,11 @@ blas_acceleration_structures: []const vk.AccelerationStructureKHR,
 blas_acceleration_structure_addresses: []const vk.DeviceAddress,
 
 tlas: Tlas,
-albedos: []const Image,
-metal_roughness: []const Image,
-emissive: []const Image,
-normals: []const Image,
 mesh_buffer: Buffer,
 obj_descs: Buffer,
+materials: Buffer,
+
+images: []const Image,
 
 storage_image: Image,
 pipeline: RayTracingPipeline,
@@ -110,47 +109,20 @@ pub fn init(
     );
     errdefer tlas.deinit(gc);
 
-    const albedos = try createTextures(
+    const images = try createImages(
         gc,
         pool,
-        scene.albedo_textures,
+        scene.textures,
         arena_allocator,
     );
-    errdefer for (albedos) |t| {
-        t.deinit(gc);
-    };
+    errdefer for (images) |image| image.deinit(gc);
 
-    const metal_roughness = try createTextures(
+    const materials = try createMaterials(
         gc,
         pool,
-        scene.metal_roughness_textures,
-        arena_allocator,
+        scene.materials,
     );
-    errdefer for (metal_roughness) |t| {
-        t.deinit(gc);
-    };
-
-    const emissive = try createTextures(
-        gc,
-        pool,
-        scene.emissive_textures,
-        arena_allocator,
-    );
-    errdefer for (emissive) |t| {
-        t.deinit(gc);
-    };
-
-    const normals = try createTextures(
-        gc,
-        pool,
-        scene.normal_textures,
-        arena_allocator,
-    );
-    errdefer for (normals) |t| {
-        t.deinit(gc);
-    };
-
-    const obj_descs = blases_and_buffer.obj_descs;
+    errdefer materials.deinit(gc);
 
     var storage_image = try Image.init(
         gc,
@@ -172,11 +144,9 @@ pub fn init(
         gc,
         &tlas,
         storage_image.view,
-        obj_descs.buffer,
-        albedos,
-        metal_roughness,
-        emissive,
-        normals,
+        blases_and_buffer.obj_descs.buffer,
+        materials.buffer,
+        images,
         num_samples,
         num_bounces,
         allocator,
@@ -191,11 +161,9 @@ pub fn init(
         .blas_acceleration_structure_addresses = blases_and_buffer.acceleration_structure_addresses,
         .mesh_buffer = blases_and_buffer.mesh_buffer,
         .tlas = tlas,
-        .obj_descs = obj_descs,
-        .albedos = albedos,
-        .metal_roughness = metal_roughness,
-        .emissive = emissive,
-        .normals = normals,
+        .obj_descs = blases_and_buffer.obj_descs,
+        .images = images,
+        .materials = materials,
 
         .storage_image = storage_image,
         .pipeline = pipeline,
@@ -206,6 +174,7 @@ pub fn deinit(self: *Self, gc: *const GraphicsContext) void {
     self.pipeline.deinit(gc);
     self.storage_image.deinit(gc);
 
+    self.materials.deinit(gc);
     self.obj_descs.deinit(gc);
 
     self.tlas.deinit(gc);
@@ -218,21 +187,8 @@ pub fn deinit(self: *Self, gc: *const GraphicsContext) void {
 
     self.mesh_buffer.deinit(gc);
 
-    for (self.normals) |t| {
-        t.deinit(gc);
-    }
+    for (self.images) |t| t.deinit(gc);
 
-    for (self.emissive) |t| {
-        t.deinit(gc);
-    }
-
-    for (self.metal_roughness) |t| {
-        t.deinit(gc);
-    }
-
-    for (self.albedos) |t| {
-        t.deinit(gc);
-    }
     self.arena.deinit();
 }
 
@@ -530,68 +486,99 @@ fn createBlases(
     };
 }
 
-fn createTextures(
+fn createImages(
+    gc: *const GraphicsContext,
+    pool: vk.CommandPool,
+    textures: []const Scene.Texture,
+    arena_allocator: std.mem.Allocator,
+) ![]const Image {
+    var image_index: usize = 0;
+    const images = try arena_allocator.alloc(Image, textures.len);
+    errdefer for (images[0..image_index]) |*image| image.deinit(gc);
+
+    for (textures, images) |texture, *image| {
+        image.* = try Image.initAndUpload(
+            gc,
+            texture.data,
+            .{ .width = texture.width, .height = texture.height },
+            .r8g8b8a8_unorm,
+            .{ .sampled_bit = true },
+            .optimal,
+            .undefined,
+            .{ .device_local_bit = true },
+            .{},
+            pool,
+        );
+
+        image_index += 1;
+    }
+
+    return images;
+}
+
+fn createMaterials(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
     materials: []const Scene.Material,
-    arena_allocator: std.mem.Allocator,
-) ![]const Image {
-    var texture_index: usize = 0;
-    const textures = try arena_allocator.alloc(Image, materials.len);
-    errdefer for (0..texture_index) |i| {
-        textures[i].deinit(gc);
+) !Buffer {
+    const Material = extern struct {
+        albedo: u32,
+        metal_roughness: u32,
+        normal: u32,
+        emissive: u32,
     };
 
-    for (materials, textures) |material, *texture| {
-        switch (material) {
-            .texture => |t| {
-                texture.* = try Image.initAndUpload(
-                    gc,
-                    t.data,
-                    .{ .width = t.width, .height = t.height },
-                    .r8g8b8a8_unorm,
-                    .{
-                        .transfer_dst_bit = true,
-                        .sampled_bit = true,
-                    },
-                    .optimal,
-                    .undefined,
-                    .{ .device_local_bit = true },
-                    .{},
-                    pool,
-                );
-            },
-            .color => |c| {
-                const color_u32 = blk: {
-                    const r: u8 = @intFromFloat(std.math.clamp(c[0] * 255.0, 0.0, 255.0));
-                    const g: u8 = @intFromFloat(std.math.clamp(c[1] * 255.0, 0.0, 255.0));
-                    const b: u8 = @intFromFloat(std.math.clamp(c[2] * 255.0, 0.0, 255.0));
-                    const a: u8 = @intFromFloat(std.math.clamp(c[3] * 255.0, 0.0, 255.0));
+    const buffer_size = @sizeOf(Material) * materials.len;
 
-                    break :blk (@as(u32, r) << 24) | (@as(u32, g) << 16) | (@as(u32, b) << 8) | @as(u32, a);
-                };
-                texture.* = try Image.initAndUpload(
-                    gc,
-                    std.mem.asBytes(&color_u32),
-                    .{ .width = 1, .height = 1 },
-                    .r8g8b8a8_unorm,
-                    .{
-                        .transfer_dst_bit = true,
-                        .sampled_bit = true,
-                    },
-                    .optimal,
-                    .undefined,
-                    .{ .device_local_bit = true },
-                    .{},
-                    pool,
-                );
-            },
-        }
+    const staging_buffer = try Buffer.init(
+        gc,
+        buffer_size,
+        .{ .transfer_src_bit = true },
+        .{
+            .host_visible_bit = true,
+            .host_coherent_bit = true,
+        },
+        .{},
+    );
+    defer staging_buffer.deinit(gc);
 
-        texture_index += 1;
+    const buffer_materials: [*]Material = @alignCast(@ptrCast(try gc.device.mapMemory(
+        staging_buffer.memory,
+        0,
+        vk.WHOLE_SIZE,
+        .{},
+    )));
+    defer gc.device.unmapMemory(staging_buffer.memory);
+
+    for (materials, buffer_materials[0..materials.len]) |material, *buffer_material| {
+        buffer_material.* = .{
+            .albedo = material.albedo,
+            .metal_roughness = material.metal_roughness,
+            .normal = material.normal,
+            .emissive = material.emissive,
+        };
     }
 
-    return textures;
+    const buffer = try Buffer.init(
+        gc,
+        buffer_size,
+        .{
+            .storage_buffer_bit = true,
+            .transfer_dst_bit = true,
+        },
+        .{ .device_local_bit = true },
+        .{},
+    );
+    errdefer buffer.deinit(gc);
+
+    try buffer.oneTimeCopyFrom(
+        staging_buffer,
+        gc,
+        pool,
+        buffer_size,
+    );
+
+    return buffer;
 }
 
 pub fn record(
