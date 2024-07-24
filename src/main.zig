@@ -307,18 +307,15 @@ pub fn main() !void {
         nuklear.end();
 
         const cmdbuf = cmdbufs[swapchain.image_index];
-        const framebuffer = framebuffers[swapchain.image_index];
-
-        try swapchain.currentSwapImage().waitForFence(&gc);
-
         {
-            const swap_image = swapchain.currentSwapImage().image;
+            const swap_image = swapchain.currentImage();
+            try swap_image.waitForFence(&gc);
 
             try gc.device.beginCommandBuffer(cmdbuf, &.{});
 
             try raytracing_pass.record(
                 &gc,
-                swap_image,
+                swap_image.image,
                 extent,
                 cmdbuf,
                 camera,
@@ -359,7 +356,7 @@ pub fn main() !void {
 
             gc.device.cmdBeginRenderPass(cmdbuf, &.{
                 .render_pass = render_pass,
-                .framebuffer = framebuffer,
+                .framebuffer = framebuffers[swapchain.image_index],
                 .render_area = render_area,
                 .clear_value_count = 0,
                 .p_clear_values = undefined,
