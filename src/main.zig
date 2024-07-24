@@ -381,8 +381,6 @@ pub fn main() !void {
         };
 
         if (state == .suboptimal or extent.width != width or extent.height != height) {
-            try gc.device.deviceWaitIdle();
-
             const prev_num_swap_images = swapchain.swap_images.len;
 
             extent.width = width;
