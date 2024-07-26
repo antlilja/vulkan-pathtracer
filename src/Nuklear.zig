@@ -190,6 +190,11 @@ pub fn update(self: *Self, input: *const Input) void {
             nk.nk_false,
         );
     }
+
+    nk.nk_input_scroll(&self.context, .{
+        .x = 0.0,
+        .y = input.scroll,
+    });
 }
 
 pub fn clear(self: *Self) void {
