@@ -100,7 +100,9 @@ pub fn main() !void {
             window,
             vk.API_VERSION_1_3,
             zw.requiredVulkanInstanceExtensions(),
-            &(NuklearPass.extensions ++ RaytracingPass.extensions),
+            &(NuklearPass.extensions ++
+                RaytracingPass.extensions ++
+                [_][*:0]const u8{vk.extensions.ext_memory_budget.name}),
             features.base,
         );
     };
@@ -206,6 +208,25 @@ pub fn main() !void {
 
     var camera_update: bool = false;
 
+    const vram_budgets, const vram_usages, const vram_types, const vram_types_count = blk: {
+        var budget_props = vk.PhysicalDeviceMemoryBudgetPropertiesEXT{
+            .heap_budget = undefined,
+            .heap_usage = undefined,
+        };
+        var props = vk.PhysicalDeviceMemoryProperties2{
+            .p_next = @ptrCast(&budget_props),
+            .memory_properties = undefined,
+        };
+        gc.instance.getPhysicalDeviceMemoryProperties2(gc.physical_device, &props);
+
+        break :blk .{
+            budget_props.heap_budget,
+            budget_props.heap_usage,
+            props.memory_properties.memory_heaps,
+            props.memory_properties.memory_heap_count,
+        };
+    };
+
     var timer = Timer.start();
     while (window.isOpen()) {
         defer timer.lap();
@@ -289,7 +310,7 @@ pub fn main() !void {
                 .w = 175.0,
                 .h = 75.0,
             },
-            .{ .no_scrollbar = true },
+            .{},
         )) {
             nuklear.layout_row_static(30.0, 175, 1);
 
@@ -303,6 +324,16 @@ pub fn main() !void {
                 .{timer.frame_time * std.time.ms_per_s},
                 .left,
             );
+
+            for (0..vram_types_count) |i| {
+                if (vram_types[i].flags.device_local_bit) {
+                    nuklear.label("Device local:", .left);
+                } else {
+                    nuklear.label("Host: ", .left);
+                }
+                nuklear.labelFmt("Usage: {} MB", .{vram_usages[i] / 1000000}, .left);
+                nuklear.labelFmt("Budget: {} MB", .{vram_budgets[i] / 1000000}, .left);
+            }
         }
         nuklear.end();
 
