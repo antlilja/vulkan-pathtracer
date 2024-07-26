@@ -10,6 +10,7 @@ frame_count: u32 = 0,
 delta_time: f32 = 0.0,
 
 frame_time: f32 = 1.0,
+second_elapsed: bool = false,
 
 pub fn start() Self {
     const now = std.time.Instant.now() catch unreachable;
@@ -25,9 +26,11 @@ pub fn lap(self: *Self) void {
 
     self.time = now;
 
+    self.second_elapsed = false;
     if (now.since(self.second_time) >= std.time.ns_per_s) {
         self.frame_time = self.delta_time;
         self.second_time = now;
+        self.second_elapsed = true;
     }
 
     self.frame_count += 1;
