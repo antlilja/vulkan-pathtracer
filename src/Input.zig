@@ -18,6 +18,9 @@ last_keys: [@intFromEnum(zw.Key.max)]bool = [_]bool{false} ** @intFromEnum(zw.Ke
 mouse_buttons: [@intFromEnum(zw.Mouse.max)]bool = [_]bool{false} ** @intFromEnum(zw.Mouse.max),
 last_mouse_buttons: [@intFromEnum(zw.Mouse.max)]bool = [_]bool{false} ** @intFromEnum(zw.Mouse.max),
 
+scroll: f32 = 0.0,
+next_scroll: f32 = 0.0,
+
 pub fn handleEvent(self: *Self, event: zw.Event) void {
     switch (event) {
         .KeyPress => |key| self.keys[@intFromEnum(key)] = true,
@@ -29,6 +32,7 @@ pub fn handleEvent(self: *Self, event: zw.Event) void {
             self.cursor_x = @floatFromInt(x);
             self.cursor_y = @floatFromInt(y);
         },
+        .MouseScrollV => |y| self.next_scroll = @floatFromInt(y),
         else => {},
     }
 }
@@ -39,6 +43,9 @@ pub fn update(self: *Self) void {
 
     self.last_cursor_x = self.cursor_x;
     self.last_cursor_y = self.cursor_y;
+
+    self.scroll = self.next_scroll;
+    self.next_scroll = 0.0;
 
     std.mem.copyForwards(bool, &self.last_keys, &self.keys);
     std.mem.copyForwards(bool, &self.last_mouse_buttons, &self.mouse_buttons);
