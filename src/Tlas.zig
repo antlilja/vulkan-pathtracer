@@ -22,24 +22,20 @@ pub fn init(
     const instances = try allocator.alloc(vk.AccelerationStructureInstanceKHR, blas_instances.len);
     defer allocator.free(instances);
 
-    {
-        var i: usize = 0;
-        for (blas_instances, instances) |blas_instance, *instance| {
-            instance.* = .{
-                .transform = .{ .matrix = .{
-                    .{ blas_instance.transform.elements[0], blas_instance.transform.elements[1], blas_instance.transform.elements[2], blas_instance.transform.elements[3] },
-                    .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
-                    .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
-                } },
-                .instance_custom_index_and_mask = .{ .instance_custom_index = @intCast(i), .mask = 0xff },
-                .instance_shader_binding_table_record_offset_and_flags = .{
-                    .instance_shader_binding_table_record_offset = 0,
-                    .flags = 0,
-                },
-                .acceleration_structure_reference = blas_addresses[blas_instance.mesh_index],
-            };
-            i += 1;
-        }
+    for (blas_instances, instances) |blas_instance, *instance| {
+        instance.* = .{
+            .transform = .{ .matrix = .{
+                .{ blas_instance.transform.elements[0], blas_instance.transform.elements[1], blas_instance.transform.elements[2], blas_instance.transform.elements[3] },
+                .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
+                .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
+            } },
+            .instance_custom_index_and_mask = .{ .instance_custom_index = 0, .mask = 0xff },
+            .instance_shader_binding_table_record_offset_and_flags = .{
+                .instance_shader_binding_table_record_offset = 0,
+                .flags = 0,
+            },
+            .acceleration_structure_reference = blas_addresses[blas_instance.mesh_index],
+        };
     }
 
     const instance_buffer = try Buffer.initAndUpload(
