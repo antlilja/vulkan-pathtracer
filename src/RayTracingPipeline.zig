@@ -208,7 +208,7 @@ pub fn init(
         };
 
         gc.device.updateDescriptorSets(
-            write_descriptors.len,
+            if (images.len == 0) write_descriptors.len - 1 else write_descriptors.len,
             &write_descriptors,
             0,
             undefined,
