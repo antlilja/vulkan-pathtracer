@@ -25,6 +25,7 @@ pub const Primitive = struct {
     index_end: u32,
     vertex_start: u32,
     vertex_end: u32,
+    material_index: u32,
 };
 
 pub const Material = struct {
@@ -51,7 +52,6 @@ positions: []const [4]f32,
 normals: []const [4]f32,
 tangents: []const [4]f32,
 uvs: []const [2]f32,
-material_indices: []const u32,
 
 materials: []const Material,
 
@@ -122,9 +122,6 @@ fn loadMeshes(
 
     var uvs = std.ArrayList([2]f32).init(allocator);
     defer uvs.deinit();
-
-    var material_indices = std.ArrayList(u32).init(allocator);
-    defer material_indices.deinit();
 
     var primitives = std.ArrayList(Primitive).init(allocator);
     defer primitives.deinit();
@@ -265,19 +262,13 @@ fn loadMeshes(
                 uvs.appendAssumeCapacity(uv);
             }
 
-            try material_indices.ensureUnusedCapacity(triangle_count);
-            for (0..triangle_count) |_| {
-                material_indices.appendAssumeCapacity(
-                    @intCast((@intFromPtr(primitive.material) -
-                        @intFromPtr(gltf_data.materials)) / @sizeOf(c.cgltf_material)),
-                );
-            }
-
             primitives.appendAssumeCapacity(.{
                 .index_start = @intCast(index_start),
                 .index_end = @intCast(indices.items.len),
                 .vertex_start = @intCast(vertex_start),
                 .vertex_end = @intCast(positions.items.len),
+                .material_index = @intCast((@intFromPtr(primitive.material) -
+                    @intFromPtr(gltf_data.materials)) / @sizeOf(c.cgltf_material)),
             });
         }
 
@@ -292,7 +283,6 @@ fn loadMeshes(
     self.normals = try arena_allocator.dupe([4]f32, normals.items);
     self.tangents = try arena_allocator.dupe([4]f32, tangents.items);
     self.uvs = try arena_allocator.dupe([2]f32, uvs.items);
-    self.material_indices = try arena_allocator.dupe(u32, material_indices.items);
 
     self.primitives = try arena_allocator.dupe(Primitive, primitives.items);
     self.meshes = meshes;

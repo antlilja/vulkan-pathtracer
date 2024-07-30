@@ -14,7 +14,7 @@ struct ObjDesc {
     uint64_t normal_address;
     uint64_t tangent_address;
     uint64_t uv_address;
-    uint64_t material_id_address;
+    uint material_index;
 };
 
 struct Material {
@@ -48,9 +48,6 @@ layout(buffer_reference, scalar) readonly buffer Uvs {
 layout(buffer_reference, scalar) readonly buffer Indices {
     uint i[];
 };
-layout(buffer_reference, scalar) readonly buffer MaterialIds {
-    uint i[];
-};
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
 layout(binding = 2, set = 0) readonly buffer ObjDescs {
@@ -82,7 +79,6 @@ void main() {
     Normals normals = Normals(obj_desc.normal_address);
     Tangents tangents = Tangents(obj_desc.tangent_address);
     Uvs uvs = Uvs(obj_desc.uv_address);
-    MaterialIds material_ids = MaterialIds(obj_desc.material_id_address);
 
     const uvec3 index = uvec3(indices.i[3 * gl_PrimitiveID], indices.i[3 * gl_PrimitiveID + 1], indices.i[3 * gl_PrimitiveID + 2]);
 
@@ -91,8 +87,7 @@ void main() {
     const vec2 uv2 = uvs.v[index.z];
     const vec2 uv = vec2(uv0 * coords.x + uv1 * coords.y + uv2 * coords.z);
 
-    const uint material_id = material_ids.i[gl_PrimitiveID];
-    const Material material = materials.i[material_id];
+    const Material material = materials.i[obj_desc.material_index];
 
     vec3 emissive;
     if ((material.emissive & 0x80000000) != 0) {

@@ -15,12 +15,12 @@ const RayTracingPipeline = @import("RayTracingPipeline.zig");
 
 const Self = @This();
 
-const ObjDesc = struct {
+const ObjDesc = extern struct {
     index_address: vk.DeviceAddress,
     normal_address: vk.DeviceAddress,
     tangent_address: vk.DeviceAddress,
     uv_address: vk.DeviceAddress,
-    material_address: vk.DeviceAddress,
+    material_index: u32,
 };
 
 pub const apis = [_]vk.ApiInfo{
@@ -214,21 +214,18 @@ fn createBlases(
     const normals_size = scene.normals.len * @sizeOf([4]f32);
     const tangents_size = scene.tangents.len * @sizeOf([4]f32);
     const uvs_size = scene.uvs.len * @sizeOf([2]f32);
-    const material_indices_size = scene.material_indices.len * @sizeOf(u32);
     const indices_size = scene.indices.len * @sizeOf(u32);
     const total_size = positions_size +
         normals_size +
         tangents_size +
         uvs_size +
-        material_indices_size +
         indices_size;
 
     const positions_begin: usize = 0;
     const normals_begin: usize = positions_begin + positions_size;
     const tangents_begin: usize = normals_begin + normals_size;
     const uvs_begin: usize = tangents_begin + tangents_size;
-    const material_indices_begin: usize = uvs_begin + uvs_size;
-    const indices_begin: usize = material_indices_begin + material_indices_size;
+    const indices_begin: usize = uvs_begin + uvs_size;
 
     const triangle_buffer, const triangle_buffer_address = blk: {
         const staging_buffer = try Buffer.init(
@@ -270,11 +267,6 @@ fn createBlases(
             const buffer_uvs: [*][2]f32 = @alignCast(@ptrCast(&buffer_data[uvs_begin]));
             for (scene.uvs, 0..) |uv, i| {
                 buffer_uvs[i] = uv;
-            }
-
-            const buffer_materials: [*]u32 = @alignCast(@ptrCast(&buffer_data[material_indices_begin]));
-            for (scene.material_indices, 0..) |material, i| {
-                buffer_materials[i] = material;
             }
 
             const buffer_indices: [*]u32 = @alignCast(@ptrCast(&buffer_data[indices_begin]));
@@ -403,7 +395,7 @@ fn createBlases(
                 .normal_address = triangle_buffer_address + normals_begin + primitive.vertex_start * @sizeOf([4]f32),
                 .tangent_address = triangle_buffer_address + tangents_begin + primitive.vertex_start * @sizeOf([4]f32),
                 .uv_address = triangle_buffer_address + uvs_begin + primitive.vertex_start * @sizeOf([2]f32),
-                .material_address = triangle_buffer_address + material_indices_begin + (primitive.index_start / 3) * @sizeOf(u32),
+                .material_index = primitive.material_index,
             };
             triangle_count.* = (primitive.index_end - primitive.index_start) / 3;
         }
