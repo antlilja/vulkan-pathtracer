@@ -16,20 +16,30 @@ pub fn init(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
     blas_addresses: []const vk.DeviceAddress,
+    blas_meshes: []const Scene.Mesh,
     blas_instances: []const Scene.Instance,
     allocator: std.mem.Allocator,
 ) !Self {
     const instances = try allocator.alloc(vk.AccelerationStructureInstanceKHR, blas_instances.len);
     defer allocator.free(instances);
 
-    for (blas_instances, instances) |blas_instance, *instance| {
+    for (
+        blas_instances,
+        instances,
+    ) |
+        blas_instance,
+        *instance,
+    | {
         instance.* = .{
             .transform = .{ .matrix = .{
                 .{ blas_instance.transform.elements[0], blas_instance.transform.elements[1], blas_instance.transform.elements[2], blas_instance.transform.elements[3] },
                 .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
                 .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
             } },
-            .instance_custom_index_and_mask = .{ .instance_custom_index = 0, .mask = 0xff },
+            .instance_custom_index_and_mask = .{
+                .instance_custom_index = @intCast(blas_meshes[blas_instance.mesh_index].start),
+                .mask = 0xff,
+            },
             .instance_shader_binding_table_record_offset_and_flags = .{
                 .instance_shader_binding_table_record_offset = 0,
                 .flags = 0,

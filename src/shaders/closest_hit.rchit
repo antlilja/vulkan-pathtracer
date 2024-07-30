@@ -76,7 +76,7 @@ mat3 normalMatrix(vec3 normal) {
 
 void main() {
     const vec3 coords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    const ObjDesc obj_desc = obj_descs.i[gl_InstanceID];
+    const ObjDesc obj_desc = obj_descs.i[gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT];
 
     Indices indices = Indices(obj_desc.index_address);
     Normals normals = Normals(obj_desc.normal_address);

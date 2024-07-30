@@ -15,7 +15,12 @@ pub const Instance = struct {
     transform: Mat4,
 };
 
-pub const MeshIndices = struct {
+pub const Mesh = struct {
+    start: u32,
+    end: u32,
+};
+
+pub const Primitive = struct {
     index_start: u32,
     index_end: u32,
     vertex_start: u32,
@@ -35,9 +40,11 @@ pub const Texture = struct {
     height: u32,
 };
 
-instances: []const Instance,
+arena: std.heap.ArenaAllocator,
 
-mesh_indices: []const MeshIndices,
+instances: []const Instance,
+meshes: []const Mesh,
+primitives: []const Primitive,
 
 indices: []const u32,
 positions: []const [4]f32,
@@ -49,8 +56,6 @@ material_indices: []const u32,
 materials: []const Material,
 
 textures: []const Texture,
-
-arena: std.heap.ArenaAllocator,
 
 pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
     const gltf_data = blk: {
@@ -121,14 +126,17 @@ fn loadMeshes(
     var material_indices = std.ArrayList(u32).init(allocator);
     defer material_indices.deinit();
 
-    const mesh_indices = try arena_allocator.alloc(MeshIndices, gltf_data.meshes_count);
+    var primitives = std.ArrayList(Primitive).init(allocator);
+    defer primitives.deinit();
 
-    for (gltf_data.meshes[0..gltf_data.meshes_count], 0..) |mesh, i| {
-        const index_start = indices.items.len;
-        const vertex_start = positions.items.len;
+    const meshes = try arena_allocator.alloc(Mesh, gltf_data.meshes_count);
 
-        var max_index: u32 = 0;
-        for (mesh.primitives[0..mesh.primitives_count]) |primitive| {
+    for (gltf_data.meshes[0..gltf_data.meshes_count], meshes) |gltf_mesh, *mesh| {
+        const primitives_start = primitives.items.len;
+        try primitives.ensureUnusedCapacity(gltf_mesh.primitives_count);
+        for (gltf_mesh.primitives[0..gltf_mesh.primitives_count]) |primitive| {
+            const index_start = indices.items.len;
+            const vertex_start = positions.items.len;
             if (primitive.type != c.cgltf_primitive_type_triangles) return error.GLTFNotTriangles;
 
             if (primitive.indices == null) return error.GLTFNoIndices;
@@ -166,7 +174,7 @@ fn loadMeshes(
                     ));
                     try indices.ensureUnusedCapacity(indices_buffer.len);
                     for (indices_buffer) |index| {
-                        indices.appendAssumeCapacity(index + max_index);
+                        indices.appendAssumeCapacity(index);
                     }
 
                     triangle_count = indices_buffer.len / 3;
@@ -179,7 +187,7 @@ fn loadMeshes(
                     ));
                     try indices.ensureUnusedCapacity(indices_buffer.len);
                     for (indices_buffer) |index| {
-                        indices.appendAssumeCapacity(index + max_index);
+                        indices.appendAssumeCapacity(index);
                     }
                     triangle_count = indices_buffer.len / 3;
                 },
@@ -204,8 +212,6 @@ fn loadMeshes(
                     0.0,
                 });
             }
-
-            max_index += @intCast(positions_buffer.len);
 
             // Normals
             if (normals_acc.*.component_type != c.cgltf_component_type_r_32f or
@@ -266,13 +272,18 @@ fn loadMeshes(
                         @intFromPtr(gltf_data.materials)) / @sizeOf(c.cgltf_material)),
                 );
             }
+
+            primitives.appendAssumeCapacity(.{
+                .index_start = @intCast(index_start),
+                .index_end = @intCast(indices.items.len),
+                .vertex_start = @intCast(vertex_start),
+                .vertex_end = @intCast(positions.items.len),
+            });
         }
 
-        mesh_indices[i] = .{
-            .index_start = @intCast(index_start),
-            .index_end = @intCast(indices.items.len),
-            .vertex_start = @intCast(vertex_start),
-            .vertex_end = @intCast(positions.items.len),
+        mesh.* = .{
+            .start = @intCast(primitives_start),
+            .end = @intCast(primitives.items.len),
         };
     }
 
@@ -283,7 +294,8 @@ fn loadMeshes(
     self.uvs = try arena_allocator.dupe([2]f32, uvs.items);
     self.material_indices = try arena_allocator.dupe(u32, material_indices.items);
 
-    self.mesh_indices = mesh_indices;
+    self.primitives = try arena_allocator.dupe(Primitive, primitives.items);
+    self.meshes = meshes;
 }
 
 fn loadTextures(

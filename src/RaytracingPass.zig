@@ -58,7 +58,7 @@ blas_acceleration_structures: []const vk.AccelerationStructureKHR,
 blas_acceleration_structure_addresses: []const vk.DeviceAddress,
 
 tlas: Tlas,
-mesh_buffer: Buffer,
+triangle_buffer: Buffer,
 obj_descs: Buffer,
 materials: Buffer,
 
@@ -96,7 +96,7 @@ pub fn init(
             gc.device.destroyAccelerationStructureKHR(as, null);
         }
         blases_and_buffer.acceleration_structure_buffer.deinit(gc);
-        blases_and_buffer.mesh_buffer.deinit(gc);
+        blases_and_buffer.triangle_buffer.deinit(gc);
         blases_and_buffer.obj_descs.deinit(gc);
     }
 
@@ -104,6 +104,7 @@ pub fn init(
         gc,
         pool,
         blases_and_buffer.acceleration_structure_addresses,
+        scene.meshes,
         scene.instances,
         allocator,
     );
@@ -159,7 +160,7 @@ pub fn init(
         .blas_acceleration_structure_buffer = blases_and_buffer.acceleration_structure_buffer,
         .blas_acceleration_structures = blases_and_buffer.acceleration_structures,
         .blas_acceleration_structure_addresses = blases_and_buffer.acceleration_structure_addresses,
-        .mesh_buffer = blases_and_buffer.mesh_buffer,
+        .triangle_buffer = blases_and_buffer.triangle_buffer,
         .tlas = tlas,
         .obj_descs = blases_and_buffer.obj_descs,
         .images = images,
@@ -185,7 +186,7 @@ pub fn deinit(self: *Self, gc: *const GraphicsContext) void {
 
     self.blas_acceleration_structure_buffer.deinit(gc);
 
-    self.mesh_buffer.deinit(gc);
+    self.triangle_buffer.deinit(gc);
 
     for (self.images) |t| t.deinit(gc);
 
@@ -200,7 +201,7 @@ fn createBlases(
     arena_allocator: std.mem.Allocator,
 ) !struct {
     obj_descs: Buffer,
-    mesh_buffer: Buffer,
+    triangle_buffer: Buffer,
     acceleration_structure_buffer: Buffer,
     acceleration_structures: []vk.AccelerationStructureKHR,
     acceleration_structure_addresses: []vk.DeviceAddress,
@@ -229,7 +230,7 @@ fn createBlases(
     const material_indices_begin: usize = uvs_begin + uvs_size;
     const indices_begin: usize = material_indices_begin + material_indices_size;
 
-    const mesh_buffer, const mesh_buffer_address = blk: {
+    const triangle_buffer, const triangle_buffer_address = blk: {
         const staging_buffer = try Buffer.init(
             gc,
             total_size,
@@ -282,7 +283,7 @@ fn createBlases(
             }
         }
 
-        const mesh_buffer = try Buffer.init(
+        const triangle_buffer = try Buffer.init(
             gc,
             total_size,
             .{
@@ -294,9 +295,9 @@ fn createBlases(
             .{ .device_local_bit = true },
             .{ .device_address_bit = true },
         );
-        errdefer mesh_buffer.deinit(gc);
+        errdefer triangle_buffer.deinit(gc);
 
-        try mesh_buffer.oneTimeCopyFrom(
+        try triangle_buffer.oneTimeCopyFrom(
             staging_buffer,
             gc,
             pool,
@@ -304,16 +305,16 @@ fn createBlases(
         );
 
         break :blk .{
-            mesh_buffer,
+            triangle_buffer,
             gc.device.getBufferDeviceAddressKHR(
-                &.{ .buffer = mesh_buffer.buffer },
+                &.{ .buffer = triangle_buffer.buffer },
             ),
         };
     };
-    errdefer mesh_buffer.deinit(gc);
+    errdefer triangle_buffer.deinit(gc);
 
     var acceleration_structure_index: usize = 0;
-    const acceleration_structures = try arena_allocator.alloc(vk.AccelerationStructureKHR, scene.mesh_indices.len);
+    const acceleration_structures = try arena_allocator.alloc(vk.AccelerationStructureKHR, scene.meshes.len);
     errdefer for (
         acceleration_structures[0..acceleration_structure_index],
     ) |as| gc.device.destroyAccelerationStructureKHR(
@@ -321,70 +322,119 @@ fn createBlases(
         null,
     );
 
-    const acceleration_structure_addresses = try arena_allocator.alloc(vk.DeviceAddress, scene.mesh_indices.len);
+    const acceleration_structure_addresses = try arena_allocator.alloc(vk.DeviceAddress, scene.meshes.len);
 
-    const infos = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildGeometryInfoKHR, scene.mesh_indices.len);
-
-    const sizes = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildSizesInfoKHR, scene.mesh_indices.len);
+    const build_infos = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildGeometryInfoKHR, scene.meshes.len);
+    const size_infos = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildSizesInfoKHR, scene.meshes.len);
+    const mesh_range_infos = try tmp_arena_allocator.alloc([*]vk.AccelerationStructureBuildRangeInfoKHR, scene.meshes.len);
 
     var total_acceleration_structures_size: vk.DeviceSize = 0;
     var total_scratch_size: vk.DeviceSize = 0;
 
-    const obj_descs = try tmp_arena_allocator.alloc(ObjDesc, scene.mesh_indices.len);
-    for (scene.mesh_indices, infos, sizes, obj_descs) |mesh, *info, *size, *obj_desc| {
-        obj_desc.* = .{
-            .index_address = mesh_buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
-            .normal_address = mesh_buffer_address + normals_begin + mesh.vertex_start * @sizeOf([4]f32),
-            .tangent_address = mesh_buffer_address + tangents_begin + mesh.vertex_start * @sizeOf([4]f32),
-            .uv_address = mesh_buffer_address + uvs_begin + mesh.vertex_start * @sizeOf([2]f32),
-            .material_address = mesh_buffer_address + material_indices_begin + (mesh.index_start / 3) * @sizeOf(u32),
-        };
+    const obj_descs = try tmp_arena_allocator.alloc(ObjDesc, scene.primitives.len);
+    for (
+        scene.meshes,
+        build_infos,
+        size_infos,
+        mesh_range_infos,
+    ) |
+        mesh,
+        *build_info,
+        *size_info,
+        *mesh_range_info,
+    | {
+        const primitives = scene.primitives[mesh.start..mesh.end];
 
-        const geom = try tmp_arena_allocator.create(vk.AccelerationStructureGeometryKHR);
-        geom.* = .{
-            .geometry_type = .triangles_khr,
-            .flags = .{ .opaque_bit_khr = true },
-            .geometry = .{
-                .triangles = .{
-                    .vertex_format = .r32g32b32_sfloat,
-                    .vertex_stride = @sizeOf([4]f32),
-                    .max_vertex = mesh.vertex_end - mesh.vertex_start,
-                    .vertex_data = .{
-                        .device_address = mesh_buffer_address + positions_begin + mesh.vertex_start * @sizeOf([4]f32),
+        const geometires = try tmp_arena_allocator.alloc(
+            vk.AccelerationStructureGeometryKHR,
+            primitives.len,
+        );
+        const range_infos = try tmp_arena_allocator.alloc(
+            vk.AccelerationStructureBuildRangeInfoKHR,
+            primitives.len,
+        );
+        const triangle_counts = try tmp_arena_allocator.alloc(
+            u32,
+            primitives.len,
+        );
+        mesh_range_info.* = range_infos.ptr;
+        for (
+            primitives,
+            geometires,
+            range_infos,
+            triangle_counts,
+            obj_descs[mesh.start..mesh.end],
+        ) |
+            primitive,
+            *geometry,
+            *range_info,
+            *triangle_count,
+            *obj_desc,
+        | {
+            geometry.* = .{
+                .geometry_type = .triangles_khr,
+                .flags = .{ .opaque_bit_khr = true },
+                .geometry = .{
+                    .triangles = .{
+                        .vertex_format = .r32g32b32_sfloat,
+                        .vertex_stride = @sizeOf([4]f32),
+                        .max_vertex = primitive.vertex_end - primitive.vertex_start,
+                        .vertex_data = .{
+                            .device_address = triangle_buffer_address + positions_begin + primitive.vertex_start * @sizeOf([4]f32),
+                        },
+                        .index_type = .uint32,
+                        .index_data = .{
+                            .device_address = triangle_buffer_address + indices_begin + primitive.index_start * @sizeOf(u32),
+                        },
+                        .transform_data = .{ .device_address = 0 },
                     },
-                    .index_type = .uint32,
-                    .index_data = .{
-                        .device_address = mesh_buffer_address + indices_begin + mesh.index_start * @sizeOf(u32),
-                    },
-                    .transform_data = .{ .device_address = 0 },
                 },
-            },
-        };
+            };
 
-        info.* = .{
+            range_info.* = .{
+                .primitive_count = (primitive.index_end - primitive.index_start) / 3,
+                .primitive_offset = 0,
+                .first_vertex = 0,
+                .transform_offset = 0,
+            };
+
+            obj_desc.* = .{
+                .index_address = triangle_buffer_address + indices_begin + primitive.index_start * @sizeOf(u32),
+                .normal_address = triangle_buffer_address + normals_begin + primitive.vertex_start * @sizeOf([4]f32),
+                .tangent_address = triangle_buffer_address + tangents_begin + primitive.vertex_start * @sizeOf([4]f32),
+                .uv_address = triangle_buffer_address + uvs_begin + primitive.vertex_start * @sizeOf([2]f32),
+                .material_address = triangle_buffer_address + material_indices_begin + (primitive.index_start / 3) * @sizeOf(u32),
+            };
+            triangle_count.* = (primitive.index_end - primitive.index_start) / 3;
+        }
+
+        build_info.* = .{
             .type = .bottom_level_khr,
             .flags = .{ .prefer_fast_trace_bit_khr = true },
             .mode = .build_khr,
-            .geometry_count = 1,
-            .p_geometries = @ptrCast(geom),
+            .geometry_count = @intCast(geometires.len),
+            .p_geometries = geometires.ptr,
             .scratch_data = .{ .device_address = 0 },
         };
-        size.* = .{
+        size_info.* = .{
             .acceleration_structure_size = 0,
             .update_scratch_size = 0,
             .build_scratch_size = 0,
         };
 
-        const num_triangles = (mesh.index_end - mesh.index_start) / 3;
         gc.device.getAccelerationStructureBuildSizesKHR(
             .device_khr,
-            info,
-            @ptrCast(&num_triangles),
-            size,
+            build_info,
+            triangle_counts.ptr,
+            size_info,
         );
 
-        total_acceleration_structures_size += std.mem.alignForward(u64, size.acceleration_structure_size, 256);
-        total_scratch_size += size.build_scratch_size;
+        total_acceleration_structures_size += std.mem.alignForward(
+            u64,
+            size_info.acceleration_structure_size,
+            256,
+        );
+        total_scratch_size += size_info.build_scratch_size;
     }
 
     const acceleration_structures_buffer = try Buffer.init(
@@ -405,37 +455,42 @@ fn createBlases(
     );
     defer scratch_buffer.deinit(gc);
 
-    const build_range_infos = try tmp_arena_allocator.alloc([*]vk.AccelerationStructureBuildRangeInfoKHR, scene.mesh_indices.len);
+    {
+        var scratch_buffer_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = scratch_buffer.buffer });
+        var acceleration_structure_offset: vk.DeviceSize = 0;
+        for (
+            acceleration_structures,
+            acceleration_structure_addresses,
+            build_infos,
+            size_infos,
+        ) |
+            *as,
+            *as_address,
+            *build_info,
+            *size_info,
+        | {
+            as.* = try gc.device.createAccelerationStructureKHR(&.{
+                .buffer = acceleration_structures_buffer.buffer,
+                .offset = acceleration_structure_offset,
+                .size = size_info.acceleration_structure_size,
+                .type = .bottom_level_khr,
+            }, null);
+            acceleration_structure_offset += std.mem.alignForward(
+                u64,
+                size_info.acceleration_structure_size,
+                256,
+            );
 
-    var scratch_buffer_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = scratch_buffer.buffer });
-    var acceleration_structure_offset: vk.DeviceSize = 0;
-    for (acceleration_structures, acceleration_structure_addresses, build_range_infos, infos, sizes, scene.mesh_indices) |*as, *as_address, *br_info, *info, *size, mesh| {
-        as.* = try gc.device.createAccelerationStructureKHR(&.{
-            .buffer = acceleration_structures_buffer.buffer,
-            .offset = acceleration_structure_offset,
-            .size = size.acceleration_structure_size,
-            .type = .bottom_level_khr,
-        }, null);
-        acceleration_structure_offset += std.mem.alignForward(u64, size.acceleration_structure_size, 256);
+            as_address.* = gc.device.getAccelerationStructureDeviceAddressKHR(&.{
+                .acceleration_structure = as.*,
+            });
 
-        as_address.* = gc.device.getAccelerationStructureDeviceAddressKHR(&.{
-            .acceleration_structure = as.*,
-        });
+            build_info.dst_acceleration_structure = as.*;
+            build_info.scratch_data = .{ .device_address = scratch_buffer_address };
+            scratch_buffer_address += size_info.build_scratch_size;
 
-        info.dst_acceleration_structure = as.*;
-        info.scratch_data = .{ .device_address = scratch_buffer_address };
-        scratch_buffer_address += size.build_scratch_size;
-
-        const build_range_info = try tmp_arena_allocator.alloc(vk.AccelerationStructureBuildRangeInfoKHR, 1);
-        build_range_info[0] = .{
-            .primitive_count = (mesh.index_end - mesh.index_start) / 3,
-            .primitive_offset = 0,
-            .first_vertex = 0,
-            .transform_offset = 0,
-        };
-        br_info.* = build_range_info.ptr;
-
-        acceleration_structure_index += 1;
+            acceleration_structure_index += 1;
+        }
     }
 
     var cmdbuf: vk.CommandBuffer = undefined;
@@ -452,9 +507,9 @@ fn createBlases(
 
     gc.device.cmdBuildAccelerationStructuresKHR(
         cmdbuf,
-        @intCast(infos.len),
-        infos.ptr,
-        @ptrCast(build_range_infos.ptr),
+        @intCast(build_infos.len),
+        build_infos.ptr,
+        mesh_range_infos.ptr,
     );
     try gc.device.endCommandBuffer(cmdbuf);
 
@@ -467,7 +522,7 @@ fn createBlases(
     try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 
     return .{
-        .mesh_buffer = mesh_buffer,
+        .triangle_buffer = triangle_buffer,
         .obj_descs = try Buffer.initAndUpload(
             gc,
             ObjDesc,
