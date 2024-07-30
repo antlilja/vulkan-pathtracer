@@ -9,6 +9,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "rand.glsl"
+#include "common.glsl"
 
 #define MATERIAL_INDEX_MASK 0xFFFFFF
 #define UINT32_INDICES_MASK 0x80000000
@@ -25,13 +26,6 @@ struct Material {
     uint metal_roughness;
     uint normal;
     uint emissive;
-};
-
-struct Payload {
-    vec3 color;
-    vec3 atten;
-    uint rng_state;
-    uint depth;
 };
 
 layout(location = 0) rayPayloadInEXT Payload payload;

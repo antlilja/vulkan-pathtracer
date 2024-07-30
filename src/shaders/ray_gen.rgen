@@ -5,13 +5,7 @@
 #extension GL_EXT_debug_printf : enable
 
 #include "rand.glsl"
-
-struct Payload {
-    vec3 color;
-    vec3 atten;
-    uint rng_state;
-    uint depth;
-};
+#include "common.glsl"
 
 layout(constant_id = 0) const uint NUM_SAMPLES = 1;
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
