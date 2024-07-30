@@ -15,7 +15,7 @@ const RayTracingPipeline = @import("RayTracingPipeline.zig");
 
 const Self = @This();
 
-const ObjDesc = extern struct {
+const Primitive = extern struct {
     index_address: vk.DeviceAddress,
     normal_address: vk.DeviceAddress,
     tangent_address: vk.DeviceAddress,
@@ -59,7 +59,7 @@ blas_acceleration_structure_addresses: []const vk.DeviceAddress,
 
 tlas: Tlas,
 triangle_buffer: Buffer,
-obj_descs: Buffer,
+primitives: Buffer,
 materials: Buffer,
 
 images: []const Image,
@@ -97,7 +97,7 @@ pub fn init(
         }
         blases_and_buffer.acceleration_structure_buffer.deinit(gc);
         blases_and_buffer.triangle_buffer.deinit(gc);
-        blases_and_buffer.obj_descs.deinit(gc);
+        blases_and_buffer.primitives.deinit(gc);
     }
 
     const tlas = try Tlas.init(
@@ -145,7 +145,7 @@ pub fn init(
         gc,
         &tlas,
         storage_image.view,
-        blases_and_buffer.obj_descs.buffer,
+        blases_and_buffer.primitives.buffer,
         materials.buffer,
         images,
         num_samples,
@@ -162,7 +162,7 @@ pub fn init(
         .blas_acceleration_structure_addresses = blases_and_buffer.acceleration_structure_addresses,
         .triangle_buffer = blases_and_buffer.triangle_buffer,
         .tlas = tlas,
-        .obj_descs = blases_and_buffer.obj_descs,
+        .primitives = blases_and_buffer.primitives,
         .images = images,
         .materials = materials,
 
@@ -176,7 +176,7 @@ pub fn deinit(self: *Self, gc: *const GraphicsContext) void {
     self.storage_image.deinit(gc);
 
     self.materials.deinit(gc);
-    self.obj_descs.deinit(gc);
+    self.primitives.deinit(gc);
 
     self.tlas.deinit(gc);
 
@@ -200,7 +200,7 @@ fn createBlases(
     allocator: std.mem.Allocator,
     arena_allocator: std.mem.Allocator,
 ) !struct {
-    obj_descs: Buffer,
+    primitives: Buffer,
     triangle_buffer: Buffer,
     acceleration_structure_buffer: Buffer,
     acceleration_structures: []vk.AccelerationStructureKHR,
@@ -323,7 +323,7 @@ fn createBlases(
     var total_acceleration_structures_size: vk.DeviceSize = 0;
     var total_scratch_size: vk.DeviceSize = 0;
 
-    const obj_descs = try tmp_arena_allocator.alloc(ObjDesc, scene.primitives.len);
+    const primitives = try tmp_arena_allocator.alloc(Primitive, scene.primitives.len);
     for (
         scene.meshes,
         build_infos,
@@ -335,33 +335,33 @@ fn createBlases(
         *size_info,
         *mesh_range_info,
     | {
-        const primitives = scene.primitives[mesh.start..mesh.end];
+        const scene_primitives = scene.primitives[mesh.start..mesh.end];
 
         const geometires = try tmp_arena_allocator.alloc(
             vk.AccelerationStructureGeometryKHR,
-            primitives.len,
+            scene_primitives.len,
         );
         const range_infos = try tmp_arena_allocator.alloc(
             vk.AccelerationStructureBuildRangeInfoKHR,
-            primitives.len,
+            scene_primitives.len,
         );
         const triangle_counts = try tmp_arena_allocator.alloc(
             u32,
-            primitives.len,
+            scene_primitives.len,
         );
         mesh_range_info.* = range_infos.ptr;
         for (
-            primitives,
+            scene_primitives,
             geometires,
             range_infos,
             triangle_counts,
-            obj_descs[mesh.start..mesh.end],
+            primitives[mesh.start..mesh.end],
         ) |
-            primitive,
+            scene_primitive,
             *geometry,
             *range_info,
             *triangle_count,
-            *obj_desc,
+            *primitive,
         | {
             geometry.* = .{
                 .geometry_type = .triangles_khr,
@@ -370,13 +370,13 @@ fn createBlases(
                     .triangles = .{
                         .vertex_format = .r32g32b32_sfloat,
                         .vertex_stride = @sizeOf([4]f32),
-                        .max_vertex = primitive.vertex_end - primitive.vertex_start,
+                        .max_vertex = scene_primitive.vertex_end - scene_primitive.vertex_start,
                         .vertex_data = .{
-                            .device_address = triangle_buffer_address + positions_begin + primitive.vertex_start * @sizeOf([4]f32),
+                            .device_address = triangle_buffer_address + positions_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
                         },
                         .index_type = .uint32,
                         .index_data = .{
-                            .device_address = triangle_buffer_address + indices_begin + primitive.index_start * @sizeOf(u32),
+                            .device_address = triangle_buffer_address + indices_begin + scene_primitive.index_start * @sizeOf(u32),
                         },
                         .transform_data = .{ .device_address = 0 },
                     },
@@ -384,20 +384,20 @@ fn createBlases(
             };
 
             range_info.* = .{
-                .primitive_count = (primitive.index_end - primitive.index_start) / 3,
+                .primitive_count = (scene_primitive.index_end - scene_primitive.index_start) / 3,
                 .primitive_offset = 0,
                 .first_vertex = 0,
                 .transform_offset = 0,
             };
 
-            obj_desc.* = .{
-                .index_address = triangle_buffer_address + indices_begin + primitive.index_start * @sizeOf(u32),
-                .normal_address = triangle_buffer_address + normals_begin + primitive.vertex_start * @sizeOf([4]f32),
-                .tangent_address = triangle_buffer_address + tangents_begin + primitive.vertex_start * @sizeOf([4]f32),
-                .uv_address = triangle_buffer_address + uvs_begin + primitive.vertex_start * @sizeOf([2]f32),
-                .material_index = primitive.material_index,
+            primitive.* = .{
+                .index_address = triangle_buffer_address + indices_begin + scene_primitive.index_start * @sizeOf(u32),
+                .normal_address = triangle_buffer_address + normals_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
+                .tangent_address = triangle_buffer_address + tangents_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
+                .uv_address = triangle_buffer_address + uvs_begin + scene_primitive.vertex_start * @sizeOf([2]f32),
+                .material_index = scene_primitive.material_index,
             };
-            triangle_count.* = (primitive.index_end - primitive.index_start) / 3;
+            triangle_count.* = (scene_primitive.index_end - scene_primitive.index_start) / 3;
         }
 
         build_info.* = .{
@@ -515,10 +515,10 @@ fn createBlases(
 
     return .{
         .triangle_buffer = triangle_buffer,
-        .obj_descs = try Buffer.initAndUpload(
+        .primitives = try Buffer.initAndUpload(
             gc,
-            ObjDesc,
-            obj_descs,
+            Primitive,
+            primitives,
             .{
                 .shader_device_address_bit = true,
                 .storage_buffer_bit = true,

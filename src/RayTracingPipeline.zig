@@ -32,7 +32,7 @@ pub fn init(
     gc: *const GraphicsContext,
     tlas: *const Tlas,
     image_view: vk.ImageView,
-    obj_desc_buffer: vk.Buffer,
+    primitives: vk.Buffer,
     material_buffer: vk.Buffer,
     images: []const Image,
     num_samples: u32,
@@ -130,8 +130,8 @@ pub fn init(
             .image_layout = .general,
         };
 
-        const obj_desc_buffer_info = vk.DescriptorBufferInfo{
-            .buffer = obj_desc_buffer,
+        const primitives_info = vk.DescriptorBufferInfo{
+            .buffer = primitives,
             .offset = 0,
             .range = ~@as(usize, 0),
         };
@@ -176,7 +176,7 @@ pub fn init(
                 .p_texel_buffer_view = undefined,
             },
             .{
-                .p_buffer_info = @ptrCast(&obj_desc_buffer_info),
+                .p_buffer_info = @ptrCast(&primitives_info),
                 .dst_set = descriptor_set,
                 .dst_binding = 2,
                 .descriptor_count = 1,

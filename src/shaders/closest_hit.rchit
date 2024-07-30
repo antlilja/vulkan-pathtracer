@@ -9,7 +9,7 @@
 
 #include "rand.glsl"
 
-struct ObjDesc {
+struct Primitive {
     uint64_t index_address;
     uint64_t normal_address;
     uint64_t tangent_address;
@@ -50,9 +50,9 @@ layout(buffer_reference, scalar) readonly buffer Indices {
 };
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 2, set = 0) readonly buffer ObjDescs {
-    ObjDesc i[];
-} obj_descs;
+layout(binding = 2, set = 0) readonly buffer Primitives {
+    Primitive i[];
+} primitives;
 layout(binding = 3, set = 0) readonly buffer Materials {
     Material i[];
 } materials;
@@ -73,12 +73,12 @@ mat3 normalMatrix(vec3 normal) {
 
 void main() {
     const vec3 coords = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
-    const ObjDesc obj_desc = obj_descs.i[gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT];
+    const Primitive primitive = primitives.i[gl_InstanceCustomIndexEXT + gl_GeometryIndexEXT];
 
-    Indices indices = Indices(obj_desc.index_address);
-    Normals normals = Normals(obj_desc.normal_address);
-    Tangents tangents = Tangents(obj_desc.tangent_address);
-    Uvs uvs = Uvs(obj_desc.uv_address);
+    Indices indices = Indices(primitive.index_address);
+    Normals normals = Normals(primitive.normal_address);
+    Tangents tangents = Tangents(primitive.tangent_address);
+    Uvs uvs = Uvs(primitive.uv_address);
 
     const uvec3 index = uvec3(indices.i[3 * gl_PrimitiveID], indices.i[3 * gl_PrimitiveID + 1], indices.i[3 * gl_PrimitiveID + 2]);
 
@@ -87,7 +87,7 @@ void main() {
     const vec2 uv2 = uvs.v[index.z];
     const vec2 uv = vec2(uv0 * coords.x + uv1 * coords.y + uv2 * coords.z);
 
-    const Material material = materials.i[obj_desc.material_index];
+    const Material material = materials.i[primitive.material_index];
 
     vec3 emissive;
     if ((material.emissive & 0x80000000) != 0) {
