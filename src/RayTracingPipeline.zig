@@ -20,13 +20,11 @@ pipeline_layout: vk.PipelineLayout,
 pipeline: vk.Pipeline,
 properties: vk.PhysicalDeviceRayTracingPipelinePropertiesKHR,
 
-ray_gen_binding_table: Buffer,
-miss_binding_table: Buffer,
-closest_hit_binding_table: Buffer,
+binding_tables: Buffer,
 
-ray_gen_device_address: vk.DeviceAddress,
-miss_device_address: vk.DeviceAddress,
-closest_hit_device_address: vk.DeviceAddress,
+ray_gen_device_region: vk.StridedDeviceAddressRegionKHR,
+miss_device_region: vk.StridedDeviceAddressRegionKHR,
+closest_hit_device_region: vk.StridedDeviceAddressRegionKHR,
 
 pub fn init(
     gc: *const GraphicsContext,
@@ -37,6 +35,7 @@ pub fn init(
     images: []const Image,
     num_samples: u32,
     num_bounces: u32,
+    pool: vk.CommandPool,
     allocator: std.mem.Allocator,
 ) !Self {
     const sampler = try gc.device.createSampler(&.{
@@ -231,19 +230,19 @@ pub fn init(
 
     const ray_gen = try gc.device.createShaderModule(&.{
         .code_size = shaders.ray_gen.len,
-        .p_code = @as([*]const u32, @ptrCast(&shaders.ray_gen)),
+        .p_code = @ptrCast(&shaders.ray_gen),
     }, null);
     defer gc.device.destroyShaderModule(ray_gen, null);
 
     const miss = try gc.device.createShaderModule(&.{
         .code_size = shaders.miss.len,
-        .p_code = @as([*]const u32, @ptrCast(&shaders.miss)),
+        .p_code = @ptrCast(&shaders.miss),
     }, null);
     defer gc.device.destroyShaderModule(miss, null);
 
     const closest_hit = try gc.device.createShaderModule(&.{
         .code_size = shaders.closest_hit.len,
-        .p_code = @as([*]const u32, @ptrCast(&shaders.closest_hit)),
+        .p_code = @ptrCast(&shaders.closest_hit),
     }, null);
     defer gc.device.destroyShaderModule(closest_hit, null);
 
@@ -353,47 +352,106 @@ pub fn init(
         ray_tracing_pipeline_properties.shader_group_handle_alignment,
     );
 
-    const handle_storage = try allocator.alloc(u8, handle_size_aligned * shader_groups.len);
+    const handle_size_base_aligned = std.mem.alignForward(
+        u32,
+        handle_size_aligned,
+        ray_tracing_pipeline_properties.shader_group_base_alignment,
+    );
+
+    var ray_gen_device_region = vk.StridedDeviceAddressRegionKHR{
+        .size = handle_size_base_aligned,
+        .stride = handle_size_base_aligned, // Size and stride must be equal for ray gen
+    };
+
+    var miss_device_region = vk.StridedDeviceAddressRegionKHR{
+        .size = handle_size_base_aligned,
+        .stride = handle_size_aligned,
+    };
+
+    var closest_hit_device_region = vk.StridedDeviceAddressRegionKHR{
+        .size = handle_size_base_aligned,
+        .stride = handle_size_aligned,
+    };
+
+    const handle_storage = try allocator.alloc(u8, handle_size * shader_groups.len);
     defer allocator.free(handle_storage);
 
     try gc.device.getRayTracingShaderGroupHandlesKHR(
         pipeline,
         0,
         shader_groups.len,
-        shader_groups.len * handle_size_aligned,
+        handle_storage.len,
         @ptrCast(handle_storage.ptr),
     );
 
-    const ray_gen_binding_table = try Buffer.initAndStore(
+    const binding_tables_size =
+        ray_gen_device_region.size +
+        miss_device_region.size +
+        closest_hit_device_region.size;
+
+    const binding_tables = try Buffer.init(
         gc,
-        u8,
-        handle_storage[0..handle_size],
-        .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
-        .{},
+        binding_tables_size,
+        .{
+            .shader_binding_table_bit_khr = true,
+            .shader_device_address_bit = true,
+            .transfer_dst_bit = true,
+        },
+        .{ .device_local_bit = true },
         .{ .device_address_bit = true },
     );
+    errdefer binding_tables.deinit(gc);
 
-    const miss_binding_table = try Buffer.initAndStore(
+    const binding_tables_device_address = gc.device.getBufferDeviceAddressKHR(&.{
+        .buffer = binding_tables.buffer,
+    });
+
+    ray_gen_device_region.device_address = binding_tables_device_address + 0;
+    miss_device_region.device_address = ray_gen_device_region.device_address + ray_gen_device_region.size;
+    closest_hit_device_region.device_address = miss_device_region.device_address + miss_device_region.size;
+
+    const staging_buffer = try Buffer.init(
         gc,
-        u8,
-        handle_storage[handle_size_aligned..(handle_size_aligned + handle_size)],
-        .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
+        binding_tables_size,
+        .{ .transfer_src_bit = true },
+        .{ .host_visible_bit = true, .host_coherent_bit = true },
         .{},
-        .{ .device_address_bit = true },
     );
+    defer staging_buffer.deinit(gc);
+    {
+        const staging_buffer_ptr: [*]u8 = @ptrCast(try gc.device.mapMemory(
+            staging_buffer.memory,
+            0,
+            vk.WHOLE_SIZE,
+            .{},
+        ));
+        defer gc.device.unmapMemory(staging_buffer.memory);
 
-    const closest_hit_binding_table = try Buffer.initAndStore(
+        std.mem.copyForwards(
+            u8,
+            staging_buffer_ptr[0..handle_size],
+            handle_storage[0..handle_size],
+        );
+
+        std.mem.copyForwards(
+            u8,
+            staging_buffer_ptr[ray_gen_device_region.size..][0..handle_size],
+            handle_storage[handle_size..][0..handle_size],
+        );
+
+        std.mem.copyForwards(
+            u8,
+            staging_buffer_ptr[(ray_gen_device_region.size + miss_device_region.size)..][0..handle_size],
+            handle_storage[(handle_size * 2)..][0..handle_size],
+        );
+    }
+
+    try binding_tables.oneTimeCopyFrom(
+        staging_buffer,
         gc,
-        u8,
-        handle_storage[(handle_size_aligned * 2)..(handle_size_aligned * 2 + handle_size)],
-        .{ .shader_binding_table_bit_khr = true, .shader_device_address_bit = true },
-        .{},
-        .{ .device_address_bit = true },
+        pool,
+        binding_tables_size,
     );
-
-    const ray_gen_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = ray_gen_binding_table.buffer });
-    const miss_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = miss_binding_table.buffer });
-    const closest_hit_device_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = closest_hit_binding_table.buffer });
 
     return .{
         .sampler = sampler,
@@ -403,20 +461,16 @@ pub fn init(
         .pipeline_layout = pipeline_layout,
         .pipeline = pipeline,
         .properties = ray_tracing_pipeline_properties,
-        .ray_gen_binding_table = ray_gen_binding_table,
-        .miss_binding_table = miss_binding_table,
-        .closest_hit_binding_table = closest_hit_binding_table,
+        .binding_tables = binding_tables,
 
-        .ray_gen_device_address = ray_gen_device_address,
-        .miss_device_address = miss_device_address,
-        .closest_hit_device_address = closest_hit_device_address,
+        .ray_gen_device_region = ray_gen_device_region,
+        .miss_device_region = miss_device_region,
+        .closest_hit_device_region = closest_hit_device_region,
     };
 }
 
 pub fn deinit(self: *const Self, gc: *const GraphicsContext) void {
-    self.closest_hit_binding_table.deinit(gc);
-    self.miss_binding_table.deinit(gc);
-    self.ray_gen_binding_table.deinit(gc);
+    self.binding_tables.deinit(gc);
     gc.device.destroyPipeline(self.pipeline, null);
     gc.device.destroyPipelineLayout(self.pipeline_layout, null);
     gc.device.destroyDescriptorSetLayout(self.descriptor_set_layout, null);

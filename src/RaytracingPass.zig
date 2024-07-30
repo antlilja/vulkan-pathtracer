@@ -150,6 +150,7 @@ pub fn init(
         images,
         num_samples,
         num_bounces,
+        pool,
         allocator,
     );
     errdefer pipeline.deinit(gc);
@@ -653,30 +654,6 @@ pub fn record(
         .present_src_khr,
     );
 
-    const handle_size_aligned = std.mem.alignForward(
-        u32,
-        self.pipeline.properties.shader_group_handle_size,
-        self.pipeline.properties.shader_group_handle_alignment,
-    );
-
-    const ray_gen_shader_entry = vk.StridedDeviceAddressRegionKHR{
-        .device_address = self.pipeline.ray_gen_device_address,
-        .stride = handle_size_aligned,
-        .size = handle_size_aligned,
-    };
-
-    const miss_shader_entry = vk.StridedDeviceAddressRegionKHR{
-        .device_address = self.pipeline.miss_device_address,
-        .stride = handle_size_aligned,
-        .size = handle_size_aligned,
-    };
-
-    const closest_hit_shader_entry = vk.StridedDeviceAddressRegionKHR{
-        .device_address = self.pipeline.closest_hit_device_address,
-        .stride = handle_size_aligned,
-        .size = handle_size_aligned,
-    };
-
     const callable_shader_entry = vk.StridedDeviceAddressRegionKHR{
         .device_address = 0,
         .stride = 0,
@@ -714,9 +691,9 @@ pub fn record(
 
     gc.device.cmdTraceRaysKHR(
         cmdbuf,
-        &ray_gen_shader_entry,
-        &miss_shader_entry,
-        &closest_hit_shader_entry,
+        &self.pipeline.ray_gen_device_region,
+        &self.pipeline.miss_device_region,
+        &self.pipeline.closest_hit_device_region,
         &callable_shader_entry,
         extent.width,
         extent.height,
