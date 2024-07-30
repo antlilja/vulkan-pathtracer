@@ -16,15 +16,14 @@ pub fn init(
     gc: *const GraphicsContext,
     pool: vk.CommandPool,
     blas_addresses: []const vk.DeviceAddress,
-    blas_meshes: []const Scene.Mesh,
-    blas_instances: []const Scene.Instance,
+    scene: *const Scene,
     allocator: std.mem.Allocator,
 ) !Self {
-    const instances = try allocator.alloc(vk.AccelerationStructureInstanceKHR, blas_instances.len);
+    const instances = try allocator.alloc(vk.AccelerationStructureInstanceKHR, scene.instances.len);
     defer allocator.free(instances);
 
     for (
-        blas_instances,
+        scene.instances,
         instances,
     ) |
         blas_instance,
@@ -37,7 +36,7 @@ pub fn init(
                 .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
             } },
             .instance_custom_index_and_mask = .{
-                .instance_custom_index = @intCast(blas_meshes[blas_instance.mesh_index].start),
+                .instance_custom_index = @intCast(scene.meshes[blas_instance.mesh_index].start),
                 .mask = 0xff,
             },
             .instance_shader_binding_table_record_offset_and_flags = .{

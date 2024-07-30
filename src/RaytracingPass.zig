@@ -16,11 +16,17 @@ const RayTracingPipeline = @import("RayTracingPipeline.zig");
 const Self = @This();
 
 const Primitive = extern struct {
+    const Flags = packed struct(u32) {
+        material_index: u24,
+        reserved: u7 = 0,
+        uin32_indices: bool,
+    };
+
     index_address: vk.DeviceAddress,
     normal_address: vk.DeviceAddress,
     tangent_address: vk.DeviceAddress,
     uv_address: vk.DeviceAddress,
-    material_index: u32,
+    flags: u32,
 };
 
 pub const apis = [_]vk.ApiInfo{
@@ -41,7 +47,13 @@ pub const extensions = [_][*:0]const u8{
 };
 
 pub const features = .{
-    vk.PhysicalDeviceFeatures{ .shader_int_64 = vk.TRUE },
+    vk.PhysicalDeviceFeatures{
+        .shader_int_16 = vk.TRUE,
+        .shader_int_64 = vk.TRUE,
+    },
+    vk.PhysicalDeviceVulkan11Features{
+        .storage_buffer_16_bit_access = vk.TRUE,
+    },
     vk.PhysicalDeviceVulkan12Features{
         .buffer_device_address = vk.TRUE,
         .runtime_descriptor_array = vk.TRUE,
@@ -104,8 +116,7 @@ pub fn init(
         gc,
         pool,
         blases_and_buffer.acceleration_structure_addresses,
-        scene.meshes,
-        scene.instances,
+        &scene,
         allocator,
     );
     errdefer tlas.deinit(gc);
@@ -118,10 +129,14 @@ pub fn init(
     );
     errdefer for (images) |image| image.deinit(gc);
 
-    const materials = try createMaterials(
+    const materials = try Buffer.initAndUpload(
         gc,
-        pool,
+        Scene.Material,
         scene.materials,
+        .{ .storage_buffer_bit = true },
+        .{ .device_local_bit = true },
+        .{},
+        pool,
     );
     errdefer materials.deinit(gc);
 
@@ -211,100 +226,22 @@ fn createBlases(
     defer tmp_arena.deinit();
     const tmp_arena_allocator = tmp_arena.allocator();
 
-    const positions_size = scene.positions.len * @sizeOf([4]f32);
-    const normals_size = scene.normals.len * @sizeOf([4]f32);
-    const tangents_size = scene.tangents.len * @sizeOf([4]f32);
-    const uvs_size = scene.uvs.len * @sizeOf([2]f32);
-    const indices_size = scene.indices.len * @sizeOf(u32);
-    const total_size = positions_size +
-        normals_size +
-        tangents_size +
-        uvs_size +
-        indices_size;
-
-    const positions_begin: usize = 0;
-    const normals_begin: usize = positions_begin + positions_size;
-    const tangents_begin: usize = normals_begin + normals_size;
-    const uvs_begin: usize = tangents_begin + tangents_size;
-    const indices_begin: usize = uvs_begin + uvs_size;
-
-    const triangle_buffer, const triangle_buffer_address = blk: {
-        const staging_buffer = try Buffer.init(
-            gc,
-            total_size,
-            .{ .transfer_src_bit = true },
-            .{
-                .host_visible_bit = true,
-                .host_coherent_bit = true,
-            },
-            .{},
-        );
-        defer staging_buffer.deinit(gc);
-
-        {
-            const buffer_data: [*]u8 = @ptrCast(try gc.device.mapMemory(
-                staging_buffer.memory,
-                0,
-                vk.WHOLE_SIZE,
-                .{},
-            ));
-            defer gc.device.unmapMemory(staging_buffer.memory);
-
-            const buffer_positions: [*][4]f32 = @alignCast(@ptrCast(buffer_data));
-            for (scene.positions, 0..) |pos, i| {
-                buffer_positions[i] = pos;
-            }
-
-            const buffer_normals: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[normals_begin]));
-            for (scene.normals, 0..) |normal, i| {
-                buffer_normals[i] = normal;
-            }
-
-            const buffer_tangents: [*][4]f32 = @alignCast(@ptrCast(&buffer_data[tangents_begin]));
-            for (scene.tangents, 0..) |tangent, i| {
-                buffer_tangents[i] = tangent;
-            }
-
-            const buffer_uvs: [*][2]f32 = @alignCast(@ptrCast(&buffer_data[uvs_begin]));
-            for (scene.uvs, 0..) |uv, i| {
-                buffer_uvs[i] = uv;
-            }
-
-            const buffer_indices: [*]u32 = @alignCast(@ptrCast(&buffer_data[indices_begin]));
-            for (scene.indices, 0..) |index, i| {
-                buffer_indices[i] = index;
-            }
-        }
-
-        const triangle_buffer = try Buffer.init(
-            gc,
-            total_size,
-            .{
-                .acceleration_structure_build_input_read_only_bit_khr = true,
-                .shader_device_address_bit = true,
-                .storage_buffer_bit = true,
-                .transfer_dst_bit = true,
-            },
-            .{ .device_local_bit = true },
-            .{ .device_address_bit = true },
-        );
-        errdefer triangle_buffer.deinit(gc);
-
-        try triangle_buffer.oneTimeCopyFrom(
-            staging_buffer,
-            gc,
-            pool,
-            total_size,
-        );
-
-        break :blk .{
-            triangle_buffer,
-            gc.device.getBufferDeviceAddressKHR(
-                &.{ .buffer = triangle_buffer.buffer },
-            ),
-        };
-    };
+    const triangle_buffer = try Buffer.initAndUpload(
+        gc,
+        u8,
+        scene.triangle_data,
+        .{
+            .acceleration_structure_build_input_read_only_bit_khr = true,
+            .shader_device_address_bit = true,
+            .storage_buffer_bit = true,
+        },
+        .{ .device_local_bit = true },
+        .{ .device_address_bit = true },
+        pool,
+    );
     errdefer triangle_buffer.deinit(gc);
+
+    const triangle_buffer_address = gc.device.getBufferDeviceAddressKHR(&.{ .buffer = triangle_buffer.buffer });
 
     var acceleration_structure_index: usize = 0;
     const acceleration_structures = try arena_allocator.alloc(vk.AccelerationStructureKHR, scene.meshes.len);
@@ -370,35 +307,35 @@ fn createBlases(
                 .geometry = .{
                     .triangles = .{
                         .vertex_format = .r32g32b32_sfloat,
-                        .vertex_stride = @sizeOf([4]f32),
-                        .max_vertex = scene_primitive.vertex_end - scene_primitive.vertex_start,
-                        .vertex_data = .{
-                            .device_address = triangle_buffer_address + positions_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
-                        },
-                        .index_type = .uint32,
-                        .index_data = .{
-                            .device_address = triangle_buffer_address + indices_begin + scene_primitive.index_start * @sizeOf(u32),
-                        },
+                        .vertex_stride = @sizeOf([3]f32),
+                        .max_vertex = scene_primitive.max_vertex,
+                        .vertex_data = .{ .device_address = triangle_buffer_address + scene_primitive.positions_offset },
+                        .index_type = if (scene_primitive.info.uint32_indices) .uint32 else .uint16,
+                        .index_data = .{ .device_address = triangle_buffer_address + scene_primitive.indices_offset },
                         .transform_data = .{ .device_address = 0 },
                     },
                 },
             };
 
             range_info.* = .{
-                .primitive_count = (scene_primitive.index_end - scene_primitive.index_start) / 3,
+                .primitive_count = scene_primitive.triangle_count,
                 .primitive_offset = 0,
                 .first_vertex = 0,
                 .transform_offset = 0,
             };
 
             primitive.* = .{
-                .index_address = triangle_buffer_address + indices_begin + scene_primitive.index_start * @sizeOf(u32),
-                .normal_address = triangle_buffer_address + normals_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
-                .tangent_address = triangle_buffer_address + tangents_begin + scene_primitive.vertex_start * @sizeOf([4]f32),
-                .uv_address = triangle_buffer_address + uvs_begin + scene_primitive.vertex_start * @sizeOf([2]f32),
-                .material_index = scene_primitive.material_index,
+                .index_address = triangle_buffer_address + scene_primitive.indices_offset,
+                .normal_address = triangle_buffer_address + scene_primitive.normals_offset,
+                .tangent_address = triangle_buffer_address + scene_primitive.tangents_offset,
+                .uv_address = triangle_buffer_address + scene_primitive.uvs_offset,
+                .flags = @bitCast(Primitive.Flags{
+                    .material_index = scene_primitive.info.material_index,
+                    .uin32_indices = scene_primitive.info.uint32_indices,
+                }),
             };
-            triangle_count.* = (scene_primitive.index_end - scene_primitive.index_start) / 3;
+
+            triangle_count.* = scene_primitive.triangle_count;
         }
 
         build_info.* = .{
@@ -514,20 +451,23 @@ fn createBlases(
     try gc.device.queueSubmit(gc.graphics_queue.handle, 1, @ptrCast(&si), .null_handle);
     try gc.device.queueWaitIdle(gc.graphics_queue.handle);
 
+    const primitives_buffer = try Buffer.initAndUpload(
+        gc,
+        Primitive,
+        primitives,
+        .{
+            .shader_device_address_bit = true,
+            .storage_buffer_bit = true,
+        },
+        .{ .device_local_bit = true },
+        .{ .device_address_bit = true },
+        pool,
+    );
+    errdefer primitives_buffer.deinit(gc);
+
     return .{
+        .primitives = primitives_buffer,
         .triangle_buffer = triangle_buffer,
-        .primitives = try Buffer.initAndUpload(
-            gc,
-            Primitive,
-            primitives,
-            .{
-                .shader_device_address_bit = true,
-                .storage_buffer_bit = true,
-            },
-            .{ .device_local_bit = true },
-            .{ .device_address_bit = true },
-            pool,
-        ),
         .acceleration_structure_buffer = acceleration_structures_buffer,
         .acceleration_structures = acceleration_structures,
         .acceleration_structure_addresses = acceleration_structure_addresses,
@@ -562,71 +502,6 @@ fn createImages(
     }
 
     return images;
-}
-
-fn createMaterials(
-    gc: *const GraphicsContext,
-    pool: vk.CommandPool,
-    materials: []const Scene.Material,
-) !Buffer {
-    const Material = extern struct {
-        albedo: u32,
-        metal_roughness: u32,
-        normal: u32,
-        emissive: u32,
-    };
-
-    const buffer_size = @sizeOf(Material) * materials.len;
-
-    const staging_buffer = try Buffer.init(
-        gc,
-        buffer_size,
-        .{ .transfer_src_bit = true },
-        .{
-            .host_visible_bit = true,
-            .host_coherent_bit = true,
-        },
-        .{},
-    );
-    defer staging_buffer.deinit(gc);
-
-    const buffer_materials: [*]Material = @alignCast(@ptrCast(try gc.device.mapMemory(
-        staging_buffer.memory,
-        0,
-        vk.WHOLE_SIZE,
-        .{},
-    )));
-    defer gc.device.unmapMemory(staging_buffer.memory);
-
-    for (materials, buffer_materials[0..materials.len]) |material, *buffer_material| {
-        buffer_material.* = .{
-            .albedo = material.albedo,
-            .metal_roughness = material.metal_roughness,
-            .normal = material.normal,
-            .emissive = material.emissive,
-        };
-    }
-
-    const buffer = try Buffer.init(
-        gc,
-        buffer_size,
-        .{
-            .storage_buffer_bit = true,
-            .transfer_dst_bit = true,
-        },
-        .{ .device_local_bit = true },
-        .{},
-    );
-    errdefer buffer.deinit(gc);
-
-    try buffer.oneTimeCopyFrom(
-        staging_buffer,
-        gc,
-        pool,
-        buffer_size,
-    );
-
-    return buffer;
 }
 
 pub fn record(
