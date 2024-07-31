@@ -67,13 +67,23 @@ pub fn init(
 
     self.allocator = allocator;
 
-    self.vulkan_handle = std.c.dlopen("libvulkan.so.1", 2) orelse return error.FailedToLoadVulkan;
-    errdefer _ = std.c.dlclose(self.vulkan_handle);
+    self.vulkan_handle = switch (builtin.target.os.tag) {
+        .linux => std.c.dlopen("libvulkan.so.1", 2),
+        .windows => blk: {
+            const load_library_fn = @extern(*const fn (name: [*:0]const u8) callconv(.C) ?*anyopaque, .{
+                .name = "LoadLibraryA",
+                .linkage = .strong,
+            });
+            break :blk load_library_fn("vulkan-1.dll");
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    } orelse return error.FailedToLoadVulkan;
+    errdefer self.freeLibrary();
 
-    const get_instance_proc_addr_fn: vk.PfnGetInstanceProcAddr = @ptrCast(std.c.dlsym(
-        self.vulkan_handle,
+    const get_instance_proc_addr_fn = self.loadFunction(
+        ?vk.PfnGetInstanceProcAddr,
         "vkGetInstanceProcAddr",
-    ) orelse return error.FailedToLoadVulkan);
+    ) orelse return error.FailedToLoadVulkan;
 
     self.vkb = try BaseDispatch.load(get_instance_proc_addr_fn);
 
@@ -331,4 +341,37 @@ pub fn allocate(self: Self, requirements: vk.MemoryRequirements, flags: vk.Memor
         .allocation_size = requirements.size,
         .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
     }, null);
+}
+
+fn freeLibrary(self: *const Self) void {
+    switch (builtin.os.tag) {
+        .linux => _ = std.c.dlclose(self.vulkan_handle),
+        .windows => {
+            const free_library_fn = @extern(*const fn (hmodule: *anyopaque) callconv(.C) c_int, .{
+                .name = "FreeLibrary",
+            });
+            _ = free_library_fn(self.vulkan_handle);
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    }
+}
+
+fn loadFunction(
+    self: *const Self,
+    comptime FnType: type,
+    name: [*:0]const u8,
+) FnType {
+    return @alignCast(@ptrCast(switch (builtin.target.os.tag) {
+        .linux => std.c.dlsym(self.vulkan_handle, name),
+        .windows => blk: {
+            const get_proc_address_fn = @extern(
+                *const fn (hmodule: *anyopaque, name: [*:0]const u8) callconv(.C) ?*anyopaque,
+                .{
+                    .name = "GetProcAddress",
+                },
+            );
+            break :blk get_proc_address_fn(self.vulkan_handle, name);
+        },
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    } orelse unreachable));
 }
