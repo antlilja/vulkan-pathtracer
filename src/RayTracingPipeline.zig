@@ -250,23 +250,23 @@ pub fn init(
         .{
             .type = .general_khr,
             .general_shader = 0,
-            .closest_hit_shader = ~@as(u32, 0),
-            .any_hit_shader = ~@as(u32, 0),
-            .intersection_shader = ~@as(u32, 0),
+            .closest_hit_shader = vk.SHADER_UNUSED_KHR,
+            .any_hit_shader = vk.SHADER_UNUSED_KHR,
+            .intersection_shader = vk.SHADER_UNUSED_KHR,
         },
         .{
             .type = .general_khr,
             .general_shader = 1,
-            .closest_hit_shader = ~@as(u32, 0),
-            .any_hit_shader = ~@as(u32, 0),
-            .intersection_shader = ~@as(u32, 0),
+            .closest_hit_shader = vk.SHADER_UNUSED_KHR,
+            .any_hit_shader = vk.SHADER_UNUSED_KHR,
+            .intersection_shader = vk.SHADER_UNUSED_KHR,
         },
         .{
             .type = .triangles_hit_group_khr,
-            .general_shader = ~@as(u32, 0),
+            .general_shader = vk.SHADER_UNUSED_KHR,
             .closest_hit_shader = 2,
-            .any_hit_shader = ~@as(u32, 0),
-            .intersection_shader = ~@as(u32, 0),
+            .any_hit_shader = vk.SHADER_UNUSED_KHR,
+            .intersection_shader = vk.SHADER_UNUSED_KHR,
         },
     };
 
