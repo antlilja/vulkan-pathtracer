@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const vk = @import("vulkan");
 const clap = @import("clap");
 
@@ -36,6 +37,7 @@ pub fn main() !void {
         \\-b, --num-bounces <u32>    How many times can a ray bounce before being terminated.
         \\-x, --resolution-x <u32>   Horizontal resolution (default is 1920) 
         \\-y, --resolution-y <u32>   Vertical resolution (default is 1080) 
+        \\-v, --enable-validation    Enable vulkan validation layers
         \\
     );
 
@@ -104,6 +106,7 @@ pub fn main() !void {
                 RaytracingPass.extensions ++
                 [_][*:0]const u8{vk.extensions.ext_memory_budget.name}),
             features.base,
+            (res.args.@"enable-validation" != 0) or (builtin.mode == .Debug),
         );
     };
     defer gc.deinit();

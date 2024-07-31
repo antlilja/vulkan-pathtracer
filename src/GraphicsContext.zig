@@ -57,6 +57,7 @@ pub fn init(
     required_instance_extensions: []const [*:0]const u8,
     required_device_extensions: []const [*:0]const u8,
     features_ptr: ?*const anyopaque,
+    enable_validation: bool,
 ) !Self {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
@@ -130,8 +131,8 @@ pub fn init(
         .p_application_info = &app_info,
         .enabled_extension_count = @intCast(required_instance_extensions.len),
         .pp_enabled_extension_names = required_instance_extensions.ptr,
-        .enabled_layer_count = if (builtin.mode == .Debug and supports_validation_layers) validation_layers.len else 0,
-        .pp_enabled_layer_names = if (builtin.mode == .Debug and supports_validation_layers) &validation_layers else undefined,
+        .enabled_layer_count = if (enable_validation and supports_validation_layers) validation_layers.len else 0,
+        .pp_enabled_layer_names = &validation_layers,
     }, null);
 
     const vki = try allocator.create(InstanceDispatch);
