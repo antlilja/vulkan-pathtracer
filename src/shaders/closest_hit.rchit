@@ -21,6 +21,8 @@ struct Primitive {
     uint info;
 };
 
+#define MATERIAL_TEXTURE_INDEX_MASK 0x7FFFFFFF
+#define MATERIAL_TEXTURE_EXISTS_MASK 0x80000000
 struct Material {
     uint albedo;
     uint metal_roughness;
@@ -102,15 +104,15 @@ void main() {
     const Material material = materials.i[primitive.info & MATERIAL_INDEX_MASK];
 
     vec3 emissive;
-    if ((material.emissive & 0x80000000) != 0) {
-        emissive = texture(textures[material.emissive & 0x7FFFFFFF], uv).rgb;
+    if ((material.emissive & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
+        emissive = texture(textures[material.emissive & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
     } else {
         emissive = unpackUnorm4x8(material.emissive).rgb;
     }
 
     vec3 albedo;
-    if ((material.albedo & 0x80000000) != 0) {
-        albedo = texture(textures[material.albedo & 0x7FFFFFFF], uv).rgb;
+    if ((material.albedo & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
+        albedo = texture(textures[material.albedo & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
     } else {
         albedo = unpackUnorm4x8(material.albedo).rgb;
     }
@@ -135,8 +137,8 @@ void main() {
         const vec3 surface_bitangent = normalize(cross(surface_normal, surface_tangent));
 
         float roughness;
-        if ((material.metal_roughness & 0x80000000) != 0) {
-            const vec3 metal_roughness = texture(textures[material.metal_roughness & 0x7FFFFFFF], uv).rgb;
+        if ((material.metal_roughness & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
+            const vec3 metal_roughness = texture(textures[material.metal_roughness & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
             roughness = metal_roughness.g;
         } else {
             const vec3 metal_roughness = unpackUnorm4x8(material.metal_roughness).rgb;
@@ -144,13 +146,13 @@ void main() {
         }
 
         vec3 normal;
-        if ((material.normal & 0x80000000) != 0) {
+        if ((material.normal & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
             const mat3 TBN = mat3(
                     surface_tangent,
                     surface_bitangent,
                     surface_normal
                 ) * mat3(gl_ObjectToWorldEXT);
-            normal = normalize(TBN * normalize(2.0 * texture(textures[material.normal & 0x7FFFFFFF], uv).rgb - vec3(1.0)));
+            normal = normalize(TBN * normalize(2.0 * texture(textures[material.normal & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb - vec3(1.0)));
         } else {
             normal = surface_normal * mat3(gl_ObjectToWorldEXT);
         }
