@@ -402,8 +402,8 @@ fn loadMaterials(
 
         const albedo_color: Color = .{
             .r = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[0] * 255.0),
-            .b = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[1] * 255.0),
-            .g = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[2] * 255.0),
+            .g = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[1] * 255.0),
+            .b = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[2] * 255.0),
             .a = 0,
         };
 
@@ -416,8 +416,8 @@ fn loadMaterials(
 
         const emissive_color: Color = .{
             .r = @intFromFloat(material.emissive_factor[0] * 255.0),
-            .b = @intFromFloat(material.emissive_factor[1] * 255.0),
-            .g = @intFromFloat(material.emissive_factor[2] * 255.0),
+            .g = @intFromFloat(material.emissive_factor[1] * 255.0),
+            .b = @intFromFloat(material.emissive_factor[2] * 255.0),
             .a = 0,
         };
 
