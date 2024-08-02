@@ -117,6 +117,8 @@ fn loadMeshes(
         var normals_size: usize = 0;
         var tangents_size: usize = 0;
         var uvs_size: usize = 0;
+
+        var largest_stride: usize = 0;
         for (
             gltf_data.meshes[0..gltf_data.meshes_count],
             meshes,
@@ -155,31 +157,36 @@ fn loadMeshes(
                 if (gltf_primitive.indices) |acc| {
                     indices_size = std.mem.alignForward(usize, indices_size, acc.*.stride);
                     indices_size += acc.*.count * acc.*.stride;
+                    largest_stride = @max(largest_stride, acc.*.stride);
                 } else return error.GLTFNoIndices;
 
                 if (positions_acc) |acc| {
                     positions_size += acc.count * acc.stride;
+                    largest_stride = @max(largest_stride, acc.stride);
                 } else return error.GLTFNoPositions;
 
                 if (normals_acc) |acc| {
-                    normals_size += acc.count * @sizeOf([4]f32);
+                    normals_size += acc.count * acc.stride;
+                    largest_stride = @max(largest_stride, acc.stride);
                 } else return error.GLTFNoNormals;
 
                 if (tangents_acc) |acc| {
-                    tangents_size += acc.count * @sizeOf([4]f32);
+                    tangents_size += acc.count * acc.stride;
+                    largest_stride = @max(largest_stride, acc.stride);
                 } else return error.GLTFNoTangents;
 
                 if (uvs_acc) |acc| {
                     uvs_size += acc.count * acc.stride;
+                    largest_stride = @max(largest_stride, acc.stride);
                 } else return error.GLTFNoUVs;
             }
         }
 
-        indices_size = std.mem.alignForward(usize, indices_size, @sizeOf([4]f32));
-        positions_size = std.mem.alignForward(usize, positions_size, @sizeOf([4]f32));
-        normals_size = std.mem.alignForward(usize, normals_size, @sizeOf([4]f32));
-        tangents_size = std.mem.alignForward(usize, tangents_size, @sizeOf([4]f32));
-        uvs_size = std.mem.alignForward(usize, uvs_size, @sizeOf([4]f32));
+        indices_size = std.mem.alignForward(usize, indices_size, largest_stride);
+        positions_size = std.mem.alignForward(usize, positions_size, largest_stride);
+        normals_size = std.mem.alignForward(usize, normals_size, largest_stride);
+        tangents_size = std.mem.alignForward(usize, tangents_size, largest_stride);
+        uvs_size = std.mem.alignForward(usize, uvs_size, largest_stride);
 
         const size =
             indices_size +
@@ -281,20 +288,15 @@ fn loadMeshes(
                 }
 
                 const normals_start = normals_index;
-                normals_index += normals_acc.count * @sizeOf([4]f32);
+                normals_index += normals_acc.count * normals_acc.stride;
 
                 {
                     const gltf_buffer: [*]const u8 = @ptrCast(normals_acc.buffer_view.*.buffer.*.data);
-                    const gltf_normals: []const [3]f32 = @alignCast(std.mem.bytesAsSlice([3]f32, gltf_buffer[(normals_acc.*.offset + normals_acc.*.buffer_view.*.offset)..][0..normals_acc.*.buffer_view.*.size]));
-                    const normals: [][4]f32 = @alignCast(std.mem.bytesAsSlice([4]f32, triangle_data[normals_start..normals_index]));
-                    for (gltf_normals, normals) |gltf_normal, *normal| {
-                        normal.* = .{
-                            gltf_normal[0],
-                            gltf_normal[1],
-                            gltf_normal[2],
-                            0.0,
-                        };
-                    }
+                    std.mem.copyForwards(
+                        u8,
+                        triangle_data[normals_start..normals_index],
+                        gltf_buffer[(normals_acc.*.offset + normals_acc.*.buffer_view.*.offset)..][0..normals_acc.*.buffer_view.*.size],
+                    );
                 }
 
                 const tangents_start = tangents_index;

@@ -36,7 +36,7 @@ hitAttributeEXT vec2 attribs;
 layout(constant_id = 0) const uint NUM_BOUNCES = 2;
 
 layout(buffer_reference, scalar) readonly buffer Normals {
-    vec4 v[];
+    vec3 v[];
 };
 layout(buffer_reference, scalar) readonly buffer Tangents {
     vec4 v[];

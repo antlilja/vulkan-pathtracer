@@ -44,6 +44,7 @@ pub const extensions = [_][*:0]const u8{
     vk.extensions.khr_buffer_device_address.name,
     vk.extensions.ext_descriptor_indexing.name,
     vk.extensions.khr_deferred_host_operations.name,
+    vk.extensions.ext_scalar_block_layout.name,
 };
 
 pub const features = .{
@@ -58,6 +59,7 @@ pub const features = .{
         .buffer_device_address = vk.TRUE,
         .runtime_descriptor_array = vk.TRUE,
         .descriptor_indexing = vk.TRUE,
+        .scalar_block_layout = vk.TRUE,
     },
     vk.PhysicalDeviceAccelerationStructureFeaturesKHR{ .acceleration_structure = vk.TRUE },
     vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{ .ray_tracing_pipeline = vk.TRUE },
