@@ -106,8 +106,6 @@ fn loadMeshes(
 ) !void {
     const arena_allocator = self.arena.allocator();
 
-    if (gltf_data.buffers_count != 1) return error.FailedToLoadGLTF;
-
     const meshes = try arena_allocator.alloc(Mesh, gltf_data.meshes_count);
 
     const primitives, const triangle_data, const indices_offset, const positions_offset, const normals_offset, const tangents_offset, const uvs_offset = blk: {
