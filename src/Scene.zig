@@ -77,9 +77,19 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
         ) != c.cgltf_result_success) return error.FailedToLoadGLTF;
         if (c.cgltf_validate(@ptrCast(gltf_data)) != c.cgltf_result_success) return error.FailedToLoadGLTF;
 
+        for (gltf_data.buffer_views[0..gltf_data.buffer_views_count]) |*buffer_view| {
+            const buffer: [*]u8 = @ptrCast(buffer_view.buffer.*.data);
+            buffer_view.data = @ptrCast(buffer[buffer_view.offset..]);
+        }
+
         break :blk gltf_data;
     };
-    defer c.cgltf_free(@ptrCast(gltf_data));
+    defer {
+        for (gltf_data.buffer_views[0..gltf_data.buffer_views_count]) |*buffer_view| {
+            buffer_view.data = null;
+        }
+        c.cgltf_free(@ptrCast(gltf_data));
+    }
 
     var self: Self = undefined;
     self.arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -108,13 +118,10 @@ fn loadMeshes(
 
     const meshes = try arena_allocator.alloc(Mesh, gltf_data.meshes_count);
 
-    const primitives, const triangle_data, const indices_offset, const positions_offset, const normals_offset, const tangents_offset, const uvs_offset = blk: {
+    const primitives, const triangle_data, const offsets = blk: {
         var primitives_count: usize = 0;
-        var indices_size: usize = 0;
-        var positions_size: usize = 0;
-        var normals_size: usize = 0;
-        var tangents_size: usize = 0;
-        var uvs_size: usize = 0;
+
+        var sizes = [_]usize{0} ** 5;
 
         var largest_stride: usize = 0;
         for (
@@ -135,81 +142,48 @@ fn loadMeshes(
             for (gltf_mesh.primitives[0..gltf_mesh.primitives_count]) |gltf_primitive| {
                 if (gltf_primitive.type != c.cgltf_primitive_type_triangles) return error.GLTFNotTriangles;
 
-                var positions_acc: ?*c.cgltf_accessor = null;
-                var normals_acc: ?*c.cgltf_accessor = null;
-                var tangents_acc: ?*c.cgltf_accessor = null;
-                var uvs_acc: ?*c.cgltf_accessor = null;
+                var accessors = [_]?*c.cgltf_accessor{null} ** 5;
+                accessors[0] = gltf_primitive.indices;
 
                 for (gltf_primitive.attributes[0..gltf_primitive.attributes_count]) |attr| {
                     switch (attr.type) {
-                        c.cgltf_attribute_type_position => positions_acc = attr.data,
-                        c.cgltf_attribute_type_normal => normals_acc = attr.data,
-                        c.cgltf_attribute_type_tangent => tangents_acc = attr.data,
+                        c.cgltf_attribute_type_position => accessors[1] = attr.data,
+                        c.cgltf_attribute_type_normal => accessors[2] = attr.data,
+                        c.cgltf_attribute_type_tangent => accessors[3] = attr.data,
                         c.cgltf_attribute_type_texcoord => {
-                            if (uvs_acc == null) uvs_acc = attr.data;
+                            if (accessors[4] == null) accessors[4] = attr.data;
                         },
                         else => {},
                     }
                 }
 
-                if (gltf_primitive.indices) |acc| {
-                    indices_size = std.mem.alignForward(usize, indices_size, acc.*.stride);
-                    indices_size += acc.*.count * acc.*.stride;
-                    largest_stride = @max(largest_stride, acc.*.stride);
-                } else return error.GLTFNoIndices;
+                sizes[0] = std.mem.alignForward(usize, sizes[0], gltf_primitive.indices.*.stride);
 
-                if (positions_acc) |acc| {
-                    positions_size += acc.count * acc.stride;
+                for (&sizes, accessors) |*size, maybe_acc| {
+                    const acc = maybe_acc orelse return error.GLTFMissingData;
+                    size.* += acc.count * acc.stride;
                     largest_stride = @max(largest_stride, acc.stride);
-                } else return error.GLTFNoPositions;
-
-                if (normals_acc) |acc| {
-                    normals_size += acc.count * acc.stride;
-                    largest_stride = @max(largest_stride, acc.stride);
-                } else return error.GLTFNoNormals;
-
-                if (tangents_acc) |acc| {
-                    tangents_size += acc.count * acc.stride;
-                    largest_stride = @max(largest_stride, acc.stride);
-                } else return error.GLTFNoTangents;
-
-                if (uvs_acc) |acc| {
-                    uvs_size += acc.count * acc.stride;
-                    largest_stride = @max(largest_stride, acc.stride);
-                } else return error.GLTFNoUVs;
+                }
             }
         }
 
-        indices_size = std.mem.alignForward(usize, indices_size, largest_stride);
-        positions_size = std.mem.alignForward(usize, positions_size, largest_stride);
-        normals_size = std.mem.alignForward(usize, normals_size, largest_stride);
-        tangents_size = std.mem.alignForward(usize, tangents_size, largest_stride);
-        uvs_size = std.mem.alignForward(usize, uvs_size, largest_stride);
-
-        const size =
-            indices_size +
-            positions_size +
-            normals_size +
-            tangents_size +
-            uvs_size;
+        var offsets: [5]usize = undefined;
+        var total_size: usize = 0;
+        for (&sizes, &offsets) |*size, *offset| {
+            offset.* = total_size;
+            size.* = std.mem.alignForward(usize, size.*, largest_stride);
+            total_size += size.*;
+        }
 
         break :blk .{
             try arena_allocator.alloc(Primitive, primitives_count),
-            try arena_allocator.alloc(u8, size),
-            0,
-            indices_size,
-            indices_size + positions_size,
-            indices_size + positions_size + normals_size,
-            indices_size + positions_size + normals_size + tangents_size,
+            try arena_allocator.alloc(u8, total_size),
+            offsets,
         };
     };
 
     {
-        var indices_index: usize = indices_offset;
-        var positions_index: usize = positions_offset;
-        var normals_index: usize = normals_offset;
-        var tangents_index: usize = tangents_offset;
-        var uvs_index: usize = uvs_offset;
+        var buffer_indices = offsets;
         for (
             gltf_data.meshes[0..gltf_data.meshes_count],
             meshes,
@@ -221,40 +195,37 @@ fn loadMeshes(
                 gltf_primitive,
                 *primitive,
             | {
-                var positions_acc: *c.cgltf_accessor = undefined;
-                var normals_acc: *c.cgltf_accessor = undefined;
-                var tangents_acc: *c.cgltf_accessor = undefined;
-                var maybe_uvs_acc: ?*c.cgltf_accessor = null;
+                var accessors = [_]?*c.cgltf_accessor{null} ** 5;
+                accessors[0] = gltf_primitive.indices;
 
                 for (gltf_primitive.attributes[0..gltf_primitive.attributes_count]) |attr| {
                     switch (attr.type) {
-                        c.cgltf_attribute_type_position => positions_acc = attr.data,
-                        c.cgltf_attribute_type_normal => normals_acc = attr.data,
-                        c.cgltf_attribute_type_tangent => tangents_acc = attr.data,
+                        c.cgltf_attribute_type_position => accessors[1] = attr.data,
+                        c.cgltf_attribute_type_normal => accessors[2] = attr.data,
+                        c.cgltf_attribute_type_tangent => accessors[3] = attr.data,
                         c.cgltf_attribute_type_texcoord => {
-                            if (maybe_uvs_acc == null) maybe_uvs_acc = attr.data;
+                            if (accessors[4] == null) accessors[4] = attr.data;
                         },
                         else => {},
                     }
                 }
 
-                const indices_acc: *c.struct_cgltf_accessor = gltf_primitive.indices;
-                const uvs_acc = maybe_uvs_acc.?;
+                buffer_indices[0] = std.mem.alignForward(usize, buffer_indices[0], gltf_primitive.indices.*.stride);
 
-                indices_index = std.mem.alignForward(usize, indices_index, indices_acc.stride);
+                const positions_acc = accessors[1].?;
 
                 primitive.* = .{
-                    .indices_offset = indices_index,
-                    .positions_offset = positions_index,
-                    .normals_offset = normals_index,
-                    .tangents_offset = tangents_index,
-                    .uvs_offset = uvs_index,
+                    .indices_offset = buffer_indices[0],
+                    .positions_offset = buffer_indices[1],
+                    .normals_offset = buffer_indices[2],
+                    .tangents_offset = buffer_indices[3],
+                    .uvs_offset = buffer_indices[4],
                     .max_vertex = @intCast(positions_acc.count),
                     .triangle_count = @intCast(gltf_primitive.indices.*.count / 3),
                     .info = .{
                         .material_index = @intCast((@intFromPtr(gltf_primitive.material) -
                             @intFromPtr(gltf_data.materials)) / @sizeOf(c.cgltf_material)),
-                        .uint32_indices = switch (indices_acc.stride) {
+                        .uint32_indices = switch (gltf_primitive.indices.*.stride) {
                             2 => false,
                             4 => true,
                             else => unreachable,
@@ -262,61 +233,16 @@ fn loadMeshes(
                     },
                 };
 
-                const indices_start = indices_index;
-                indices_index += indices_acc.count * indices_acc.stride;
-                {
-                    const gltf_buffer: [*]const u8 = @ptrCast(indices_acc.buffer_view.*.buffer.*.data);
+                for (&buffer_indices, &accessors) |*index, maybe_acc| {
+                    const acc = maybe_acc.?;
+                    const start = index.*;
+                    const size = acc.count * acc.stride;
+                    index.* += size;
+                    const buffer_view: [*]const u8 = @ptrCast(acc.buffer_view.*.data);
                     std.mem.copyForwards(
                         u8,
-                        triangle_data[indices_start..indices_index],
-                        gltf_buffer[(indices_acc.*.offset + indices_acc.*.buffer_view.*.offset)..][0..indices_acc.*.buffer_view.*.size],
-                    );
-                }
-
-                const positions_start = positions_index;
-                positions_index += positions_acc.count * positions_acc.stride;
-
-                {
-                    const gltf_buffer: [*]const u8 = @ptrCast(positions_acc.buffer_view.*.buffer.*.data);
-                    std.mem.copyForwards(
-                        u8,
-                        triangle_data[positions_start..positions_index],
-                        gltf_buffer[(positions_acc.*.offset + positions_acc.*.buffer_view.*.offset)..][0..positions_acc.*.buffer_view.*.size],
-                    );
-                }
-
-                const normals_start = normals_index;
-                normals_index += normals_acc.count * normals_acc.stride;
-
-                {
-                    const gltf_buffer: [*]const u8 = @ptrCast(normals_acc.buffer_view.*.buffer.*.data);
-                    std.mem.copyForwards(
-                        u8,
-                        triangle_data[normals_start..normals_index],
-                        gltf_buffer[(normals_acc.*.offset + normals_acc.*.buffer_view.*.offset)..][0..normals_acc.*.buffer_view.*.size],
-                    );
-                }
-
-                const tangents_start = tangents_index;
-                tangents_index += tangents_acc.count * tangents_acc.stride;
-
-                {
-                    const gltf_buffer: [*]const u8 = @ptrCast(tangents_acc.buffer_view.*.buffer.*.data);
-                    std.mem.copyForwards(
-                        u8,
-                        triangle_data[tangents_start..tangents_index],
-                        gltf_buffer[(tangents_acc.*.offset + tangents_acc.*.buffer_view.*.offset)..][0..tangents_acc.*.buffer_view.*.size],
-                    );
-                }
-
-                const uvs_start = uvs_index;
-                uvs_index += uvs_acc.count * uvs_acc.stride;
-                {
-                    const gltf_buffer: [*]const u8 = @ptrCast(uvs_acc.buffer_view.*.buffer.*.data);
-                    std.mem.copyForwards(
-                        u8,
-                        triangle_data[uvs_start..uvs_index],
-                        gltf_buffer[(uvs_acc.*.offset + uvs_acc.*.buffer_view.*.offset)..][0..uvs_acc.*.buffer_view.*.size],
+                        triangle_data[start..index.*],
+                        buffer_view[acc.offset..][0..size],
                     );
                 }
             }
