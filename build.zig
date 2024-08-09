@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const ShaderCompileStep = @import("ShaderCompileStep.zig");
+const ShaderCompileStep = @import("vulkan-zig").ShaderCompileStep;
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -79,7 +79,7 @@ pub fn build(b: *std.Build) !void {
 
     const shaders = ShaderCompileStep.create(
         b,
-        glslang.getEmittedBin(),
+        .{ .lazy_path = glslang.getEmittedBin() },
         &[_][]const u8{ "-V", "--target-env", "vulkan1.2" },
         "-o",
     );
