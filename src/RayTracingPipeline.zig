@@ -76,7 +76,7 @@ pub fn init(
             .binding = 0,
             .descriptor_count = 1,
             .descriptor_type = .acceleration_structure_khr,
-            .stage_flags = .{ .raygen_bit_khr = true, .closest_hit_bit_khr = true },
+            .stage_flags = .{ .raygen_bit_khr = true },
         },
         .{
             .binding = 1,
@@ -88,19 +88,19 @@ pub fn init(
             .binding = 2,
             .descriptor_count = 1,
             .descriptor_type = .storage_buffer,
-            .stage_flags = .{ .closest_hit_bit_khr = true },
+            .stage_flags = .{ .raygen_bit_khr = true },
         },
         .{
             .binding = 3,
             .descriptor_count = 1,
             .descriptor_type = .storage_buffer,
-            .stage_flags = .{ .closest_hit_bit_khr = true },
+            .stage_flags = .{ .raygen_bit_khr = true },
         },
         .{
             .binding = 4,
             .descriptor_count = @intCast(images.len),
             .descriptor_type = .combined_image_sampler,
-            .stage_flags = .{ .closest_hit_bit_khr = true },
+            .stage_flags = .{ .raygen_bit_khr = true },
         },
     };
 
@@ -270,10 +270,29 @@ pub fn init(
         },
     };
 
-    const specialization = vk.SpecializationMapEntry{
-        .constant_id = 0,
-        .offset = 0,
-        .size = @sizeOf(u32),
+    const RayGenSpecializationData = extern struct {
+        const entries = blk: {
+            const fields = std.meta.fields(@This());
+
+            var result: [fields.len]vk.SpecializationMapEntry = undefined;
+            for (&result, fields, 0..) |*entry, field, i| {
+                entry.* = .{
+                    .constant_id = i,
+                    .offset = @offsetOf(@This(), field.name),
+                    .size = @sizeOf(field.type),
+                };
+            }
+
+            break :blk result;
+        };
+
+        num_samples: u32,
+        num_bounces: u32,
+    };
+
+    const ray_gen_specialization_data = RayGenSpecializationData{
+        .num_samples = num_samples,
+        .num_bounces = num_bounces,
     };
 
     const shaders_stages = [_]vk.PipelineShaderStageCreateInfo{
@@ -282,10 +301,10 @@ pub fn init(
             .module = ray_gen,
             .p_name = "main",
             .p_specialization_info = &.{
-                .map_entry_count = 1,
-                .p_map_entries = @as([*]const vk.SpecializationMapEntry, @ptrCast(&specialization)),
-                .data_size = @sizeOf(u32),
-                .p_data = @as(*const anyopaque, @ptrCast(&num_samples)),
+                .map_entry_count = RayGenSpecializationData.entries.len,
+                .p_map_entries = &RayGenSpecializationData.entries,
+                .data_size = @sizeOf(RayGenSpecializationData),
+                .p_data = @ptrCast(&ray_gen_specialization_data),
             },
         },
         .{
@@ -297,12 +316,6 @@ pub fn init(
             .stage = .{ .closest_hit_bit_khr = true },
             .module = closest_hit,
             .p_name = "main",
-            .p_specialization_info = &.{
-                .map_entry_count = 1,
-                .p_map_entries = @as([*]const vk.SpecializationMapEntry, @ptrCast(&specialization)),
-                .data_size = @sizeOf(u32),
-                .p_data = @as(*const anyopaque, @ptrCast(&num_bounces)),
-            },
         },
     };
 
