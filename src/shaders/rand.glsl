@@ -1,3 +1,6 @@
+#ifndef RAND_GLSL
+#define RAND_GLSL
+
 // https://github.com/nvpro-samples/optix_prime_baking/blob/332a886f1ac46c0b3eea9e89a59593470c755a0e/random.h
 uint tea(uint val0, uint val1) {
     uint v0 = val0;
@@ -42,3 +45,5 @@ vec3 cosine_weighted_sample(inout uint prev, mat3 matrix) {
         sqrt(1.0 - e2)
     ) * matrix;
 }
+
+#endif

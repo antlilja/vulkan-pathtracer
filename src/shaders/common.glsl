@@ -1,3 +1,6 @@
+#ifndef COMMON_GLSL
+#define COMMON_GLSL
+
 struct Payload {
     uint primitive_index;
     uint triangle_index;
@@ -6,3 +9,5 @@ struct Payload {
     mat4x3 object_to_world;
     mat4x3 world_to_object;
 };
+
+#endif
