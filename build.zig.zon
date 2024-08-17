@@ -12,8 +12,8 @@
             .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
         },
         .@"zig-window" = .{
-            .url = "https://github.com/antlilja/zig-window/archive/6b5a9941038d1ac4a3e36b6c75c99aca244601bd.tar.gz",
-            .hash = "1220f91af65bf5a4c07cb110cc46bcb7ccbaf77061f7a538e9ade83a417a6929ff85",
+            .url = "https://github.com/antlilja/zig-window/archive/ba6741d958b0fc5a1a2b97ed39dbc162508124cf.tar.gz",
+            .hash = "1220d6a7b5b727d6ea3c18838c82e3f2cabef1be827c54e1003b2515c954bb5437f8",
         },
         .glslang = .{
             .url = "https://github.com/antlilja/zig-glslang/archive/f2ec40cefb3352370a3611bc0ffdf34d2f8bc554.tar.gz",
