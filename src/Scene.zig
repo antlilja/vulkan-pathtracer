@@ -3,8 +3,9 @@ const vk = @import("vulkan");
 
 const Mat4 = @import("Mat4.zig");
 
-const c = @cImport({
-    @cInclude("cgltf.h");
+const zgltf = @import("zgltf");
+const Gltf = zgltf.Gltf(.{
+    .include = .{ .cameras = false },
 });
 
 const zi = @import("zigimg");
@@ -49,6 +50,18 @@ pub const Texture = struct {
     height: u32,
 };
 
+const Color = packed struct(u32) {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+};
+
+const Buffer = struct {
+    offset: usize,
+    file: std.fs.File,
+};
+
 arena: std.heap.ArenaAllocator,
 
 instances: []const Instance,
@@ -61,43 +74,71 @@ materials: []const Material,
 textures: []const Texture,
 
 pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
-    const gltf_data = blk: {
-        const path_c = try allocator.dupeZ(u8, path);
-        defer allocator.free(path_c);
+    var gltf_file = try std.fs.cwd().openFile(path, .{});
+    defer gltf_file.close();
 
-        const options = c.cgltf_options{};
-        var gltf_data: *c.cgltf_data = undefined;
-        if (c.cgltf_parse_file(&options, path_c, @ptrCast(&gltf_data)) != c.cgltf_result_success) return error.FailedToLoadGLTF;
-        errdefer c.cgltf_free(@ptrCast(gltf_data));
+    var gltf_arena = std.heap.ArenaAllocator.init(allocator);
+    defer gltf_arena.deinit();
 
-        if (c.cgltf_load_buffers(
-            &options,
-            @ptrCast(gltf_data),
-            path_c,
-        ) != c.cgltf_result_success) return error.FailedToLoadGLTF;
-        if (c.cgltf_validate(@ptrCast(gltf_data)) != c.cgltf_result_success) return error.FailedToLoadGLTF;
+    const gltf_data, const buffers = blk: {
+        const file_extension = std.fs.path.extension(path);
+        if (std.mem.eql(u8, file_extension, ".glb")) {
+            const result = try zgltf.parseGlb(
+                Gltf,
+                gltf_file.reader(),
+                gltf_arena.allocator(),
+                allocator,
+            );
+            const buffers = try gltf_arena.allocator().alloc(Buffer, 1);
+            buffers[0] = .{
+                .offset = result.buffer_offset,
+                .file = gltf_file,
+            };
 
-        for (gltf_data.buffer_views[0..gltf_data.buffer_views_count]) |*buffer_view| {
-            const buffer: [*]u8 = @ptrCast(buffer_view.buffer.*.data);
-            buffer_view.data = @ptrCast(buffer[buffer_view.offset..]);
+            break :blk .{
+                result.gltf,
+                buffers,
+            };
+        } else if (std.mem.eql(u8, file_extension, ".gltf")) {
+            const result = try zgltf.parseGltf(
+                Gltf,
+                gltf_file.reader(),
+                gltf_arena.allocator(),
+                allocator,
+            );
+
+            var buffer_index: usize = 0;
+            const buffers = try gltf_arena.allocator().alloc(Buffer, result.buffers.len);
+            errdefer for (buffers[0..buffer_index]) |buffer| {
+                buffer.file.close();
+            };
+
+            for (buffers, result.buffers) |*buffer, gltf_buffer| {
+                buffer.* = .{
+                    .offset = 0,
+                    .file = try std.fs.cwd().openFile(gltf_buffer.uri, .{}),
+                };
+                buffer_index += 1;
+            }
+
+            break :blk .{
+                result,
+                buffers,
+            };
         }
-
-        break :blk gltf_data;
+        return error.InvalidFileExtension;
     };
-    defer {
-        for (gltf_data.buffer_views[0..gltf_data.buffer_views_count]) |*buffer_view| {
-            buffer_view.data = null;
-        }
-        c.cgltf_free(@ptrCast(gltf_data));
-    }
+    defer for (buffers) |buffer| {
+        if (buffer.offset == 0) buffer.file.close();
+    };
 
     var self: Self = undefined;
     self.arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     errdefer self.arena.deinit();
 
-    try self.loadMeshes(gltf_data);
+    try self.loadMeshes(gltf_data, buffers);
 
-    try self.loadTextures(gltf_data, std.fs.cwd(), allocator);
+    try self.loadTextures(gltf_data, buffers, std.fs.cwd(), allocator);
 
     try self.loadMaterials(gltf_data);
 
@@ -112,60 +153,54 @@ pub fn deinit(self: *const Self) void {
 
 fn loadMeshes(
     self: *Self,
-    gltf_data: *const c.cgltf_data,
+    gltf_data: Gltf,
+    gltf_buffers: []const Buffer,
 ) !void {
     const arena_allocator = self.arena.allocator();
 
-    const meshes = try arena_allocator.alloc(Mesh, gltf_data.meshes_count);
+    const meshes = try arena_allocator.alloc(Mesh, gltf_data.meshes.len);
 
-    const primitives, const triangle_data, const offsets = blk: {
-        var primitives_count: usize = 0;
+    const offsets, const primitives, const triangle_data = blk: {
+        var primitive_index: u32 = 0;
 
         var sizes = [_]usize{0} ** 5;
-
         var largest_stride: usize = 0;
-        for (
-            gltf_data.meshes[0..gltf_data.meshes_count],
-            meshes,
-        ) |
-            gltf_mesh,
-            *mesh,
-        | {
-            const primitives_start = primitives_count;
-            primitives_count += gltf_mesh.primitives_count;
+        for (gltf_data.meshes, meshes) |gltf_mesh, *mesh| {
+            for (gltf_mesh.primitives) |gltf_primitive| {
+                if (gltf_primitive.mode != .triangles) return error.GltfNotATriangleTopology;
 
-            mesh.* = .{
-                .start = @intCast(primitives_start),
-                .end = @intCast(primitives_count),
-            };
+                const indices = gltf_primitive.indices.getOrNull() orelse return error.GltfNoIndices;
+                const positions = gltf_primitive.attributes.position.getOrNull() orelse return error.GltfNoPositions;
+                const normals = gltf_primitive.attributes.normal.getOrNull() orelse return error.GltfNoNormals;
+                const tangents = gltf_primitive.attributes.tangent.getOrNull() orelse return error.GltfNoTangents;
+                const texcoords = gltf_primitive.attributes.texcoord_0.getOrNull() orelse return error.GltfNoTextureCoordinates;
 
-            for (gltf_mesh.primitives[0..gltf_mesh.primitives_count]) |gltf_primitive| {
-                if (gltf_primitive.type != c.cgltf_primitive_type_triangles) return error.GLTFNotTriangles;
+                const accessors = [_]Gltf.Accessor{
+                    gltf_data.accessors[indices],
+                    gltf_data.accessors[positions],
+                    gltf_data.accessors[normals],
+                    gltf_data.accessors[tangents],
+                    gltf_data.accessors[texcoords],
+                };
 
-                var accessors = [_]?*c.cgltf_accessor{null} ** 5;
-                accessors[0] = gltf_primitive.indices;
-
-                for (gltf_primitive.attributes[0..gltf_primitive.attributes_count]) |attr| {
-                    switch (attr.type) {
-                        c.cgltf_attribute_type_position => accessors[1] = attr.data,
-                        c.cgltf_attribute_type_normal => accessors[2] = attr.data,
-                        c.cgltf_attribute_type_tangent => accessors[3] = attr.data,
-                        c.cgltf_attribute_type_texcoord => {
-                            if (accessors[4] == null) accessors[4] = attr.data;
-                        },
-                        else => {},
-                    }
-                }
-
-                sizes[0] = std.mem.alignForward(usize, sizes[0], gltf_primitive.indices.*.stride);
-
-                for (&sizes, accessors) |*size, maybe_acc| {
-                    const acc = maybe_acc orelse return error.GLTFMissingData;
-                    size.* += acc.count * acc.stride;
-                    largest_stride = @max(largest_stride, acc.stride);
+                for (accessors, &sizes) |accessor, *size| {
+                    size.* += accessor.count * accessor.component_type.size() * accessor.type.count();
+                    largest_stride = @max(
+                        largest_stride,
+                        accessor.count * accessor.component_type.size() * accessor.type.count(),
+                    );
                 }
             }
+
+            const primitives_start = primitive_index;
+            primitive_index += @intCast(gltf_mesh.primitives.len);
+            mesh.* = .{
+                .start = primitives_start,
+                .end = primitive_index,
+            };
         }
+
+        largest_stride = std.math.ceilPowerOfTwoAssert(usize, largest_stride);
 
         var offsets: [5]usize = undefined;
         var total_size: usize = 0;
@@ -176,43 +211,27 @@ fn loadMeshes(
         }
 
         break :blk .{
-            try arena_allocator.alloc(Primitive, primitives_count),
-            try arena_allocator.alloc(u8, total_size),
             offsets,
+            try arena_allocator.alloc(Primitive, primitive_index),
+            try arena_allocator.alloc(u8, total_size),
         };
     };
 
     {
         var buffer_indices = offsets;
-        for (
-            gltf_data.meshes[0..gltf_data.meshes_count],
-            meshes,
-        ) |gltf_mesh, *mesh| {
-            for (
-                gltf_mesh.primitives[0..gltf_mesh.primitives_count],
-                primitives[mesh.start..mesh.end],
-            ) |
-                gltf_primitive,
-                *primitive,
-            | {
-                var accessors = [_]?*c.cgltf_accessor{null} ** 5;
-                accessors[0] = gltf_primitive.indices;
+        for (gltf_data.meshes, meshes) |gltf_mesh, mesh| {
+            for (gltf_mesh.primitives, primitives[mesh.start..mesh.end]) |gltf_primitive, *primitive| {
+                const indices = gltf_data.accessors[gltf_primitive.indices.get()];
+                const positions = gltf_data.accessors[gltf_primitive.attributes.position.get()];
+                const normals = gltf_data.accessors[gltf_primitive.attributes.normal.get()];
+                const tangents = gltf_data.accessors[gltf_primitive.attributes.tangent.get()];
+                const texcoords = gltf_data.accessors[gltf_primitive.attributes.texcoord_0.get()];
 
-                for (gltf_primitive.attributes[0..gltf_primitive.attributes_count]) |attr| {
-                    switch (attr.type) {
-                        c.cgltf_attribute_type_position => accessors[1] = attr.data,
-                        c.cgltf_attribute_type_normal => accessors[2] = attr.data,
-                        c.cgltf_attribute_type_tangent => accessors[3] = attr.data,
-                        c.cgltf_attribute_type_texcoord => {
-                            if (accessors[4] == null) accessors[4] = attr.data;
-                        },
-                        else => {},
-                    }
-                }
-
-                buffer_indices[0] = std.mem.alignForward(usize, buffer_indices[0], gltf_primitive.indices.*.stride);
-
-                const positions_acc = accessors[1].?;
+                buffer_indices[0] = std.mem.alignForward(
+                    usize,
+                    buffer_indices[0],
+                    indices.component_type.size(),
+                );
 
                 primitive.* = .{
                     .indices_offset = buffer_indices[0],
@@ -220,32 +239,104 @@ fn loadMeshes(
                     .normals_offset = buffer_indices[2],
                     .tangents_offset = buffer_indices[3],
                     .uvs_offset = buffer_indices[4],
-                    .max_vertex = @intCast(positions_acc.count),
-                    .triangle_count = @intCast(gltf_primitive.indices.*.count / 3),
+                    .max_vertex = positions.count - 1,
+                    .triangle_count = @intCast(indices.count / 3),
                     .info = .{
-                        .material_index = @intCast((@intFromPtr(gltf_primitive.material) -
-                            @intFromPtr(gltf_data.materials)) / @sizeOf(c.cgltf_material)),
-                        .uint32_indices = switch (gltf_primitive.indices.*.stride) {
-                            2 => false,
-                            4 => true,
+                        .material_index = @intCast(gltf_primitive.material.getOrNull() orelse return error.NoMaterial),
+                        .uint32_indices = switch (indices.component_type) {
+                            .unsigned_short => false,
+                            .unsigned_int => true,
                             else => unreachable,
                         },
                     },
                 };
 
-                for (&buffer_indices, &accessors) |*index, maybe_acc| {
-                    const acc = maybe_acc.?;
-                    const start = index.*;
-                    const size = acc.count * acc.stride;
-                    index.* += size;
-                    const buffer_view: [*]const u8 = @ptrCast(acc.buffer_view.*.data);
-                    std.mem.copyForwards(
-                        u8,
-                        triangle_data[start..index.*],
-                        buffer_view[acc.offset..][0..size],
-                    );
+                // Read indices
+                {
+                    const start = buffer_indices[0];
+                    const size = indices.count * indices.component_type.size();
+                    buffer_indices[0] += size;
+
+                    const buffer_view = gltf_data.buffer_views[indices.buffer_view.getOrNull() orelse return error.NoBufferView];
+                    const buffer = gltf_buffers[buffer_view.buffer.get()];
+
+                    try buffer.file.seekTo(buffer.offset + indices.byte_offset + buffer_view.byte_offset);
+                    const read_size = try buffer.file.read(triangle_data[start..][0..size]);
+                    if (read_size != size) return error.EndOfFile;
+                }
+
+                // Read positions
+                {
+                    const start = buffer_indices[1];
+                    if (positions.type != .vec3) return error.InvalidPositionType;
+                    const size = positions.count * positions.type.count() * positions.component_type.size();
+                    buffer_indices[1] += size;
+
+                    const buffer_view = gltf_data.buffer_views[positions.buffer_view.getOrNull() orelse return error.NoBufferView];
+                    const buffer = gltf_buffers[buffer_view.buffer.get()];
+
+                    try buffer.file.seekTo(buffer.offset + positions.byte_offset + buffer_view.byte_offset);
+                    const read_size = try buffer.file.read(triangle_data[start..][0..size]);
+                    if (read_size != size) return error.EndOfFile;
+                }
+
+                // Read normals
+                {
+                    const start = buffer_indices[2];
+                    if (normals.type != .vec3) return error.InvalidNormalType;
+                    const size = normals.count * normals.type.count() * normals.component_type.size();
+                    buffer_indices[2] += size;
+
+                    const buffer_view = gltf_data.buffer_views[normals.buffer_view.getOrNull() orelse return error.NoBufferView];
+                    const buffer = gltf_buffers[buffer_view.buffer.get()];
+
+                    try buffer.file.seekTo(buffer.offset + normals.byte_offset + buffer_view.byte_offset);
+                    const read_size = try buffer.file.read(triangle_data[start..][0..size]);
+                    if (read_size != size) return error.EndOfFile;
+                }
+
+                // Read tangents
+                {
+                    const start = buffer_indices[3];
+                    if (tangents.type != .vec4) return error.InvalidTangentType;
+                    const size = tangents.count * tangents.type.count() * tangents.component_type.size();
+                    buffer_indices[3] += size;
+
+                    const buffer_view = gltf_data.buffer_views[tangents.buffer_view.getOrNull() orelse return error.NoBufferView];
+                    const buffer = gltf_buffers[buffer_view.buffer.get()];
+
+                    try buffer.file.seekTo(buffer.offset + tangents.byte_offset + buffer_view.byte_offset);
+                    const read_size = try buffer.file.read(triangle_data[start..][0..size]);
+                    if (read_size != size) return error.EndOfFile;
+                }
+
+                // Read texture coordinates
+                {
+                    const start = buffer_indices[4];
+                    if (texcoords.type != .vec2) return error.InvalidTexcoordType;
+                    const size = texcoords.count * texcoords.type.count() * texcoords.component_type.size();
+                    buffer_indices[4] += size;
+
+                    const buffer_view = gltf_data.buffer_views[texcoords.buffer_view.getOrNull() orelse return error.NoBufferView];
+                    const buffer = gltf_buffers[buffer_view.buffer.get()];
+
+                    try buffer.file.seekTo(buffer.offset + texcoords.byte_offset + buffer_view.byte_offset);
+                    const read_size = try buffer.file.read(triangle_data[start..][0..size]);
+                    if (read_size != size) return error.EndOfFile;
                 }
             }
+        }
+    }
+
+    {
+        var primitive_index: u32 = 0;
+        for (gltf_data.meshes, meshes) |gltf_mesh, *mesh| {
+            const start = primitive_index;
+            primitive_index += @intCast(gltf_mesh.primitives.len);
+            mesh.* = .{
+                .start = start,
+                .end = primitive_index,
+            };
         }
     }
 
@@ -256,50 +347,56 @@ fn loadMeshes(
 
 fn loadTextures(
     self: *Self,
-    gltf_data: *const c.cgltf_data,
+    gltf_data: Gltf,
+    gltf_buffers: []const Buffer,
     dir: std.fs.Dir,
     allocator: std.mem.Allocator,
 ) !void {
-    if (gltf_data.textures == null) {
+    if (gltf_data.textures.len == 0) {
         self.textures = &.{};
         return;
     }
+
     const arena_allocator = self.arena.allocator();
 
-    const textures = try arena_allocator.alloc(Texture, gltf_data.textures_count);
+    const textures = try arena_allocator.alloc(Texture, gltf_data.textures.len);
 
-    const buffer: [*]const u8 = @ptrCast(gltf_data.buffers.*.data);
-
-    for (gltf_data.textures[0..gltf_data.textures_count], textures) |texture, *out_texture| {
-        var image = if (texture.image.*.uri != null) blk: {
-            var file = try dir.openFile(std.mem.span(texture.image.*.uri), .{});
+    for (gltf_data.textures, textures) |gltf_texture, *texture| {
+        const image = gltf_data.images[gltf_texture.source.get()];
+        var image_data = if (image.uri.len != 0) blk: {
+            var file = try dir.openFile(image.uri, .{});
             defer file.close();
 
             break :blk try zi.Image.fromFile(allocator, &file);
-        } else if (texture.image.*.buffer_view != null) blk: {
-            const image_buffer = buffer[texture.image.*.buffer_view.*.offset..][0..texture.image.*.buffer_view.*.size];
+        } else blk: {
+            const buffer_view = gltf_data.buffer_views[image.buffer_view.get()];
+            const buffer = gltf_buffers[buffer_view.buffer.get()];
 
-            break :blk try zi.Image.fromMemory(allocator, image_buffer);
-        } else return error.NoTextureFound;
-        defer image.deinit();
+            const image_data = try allocator.alloc(u8, buffer_view.byte_length);
+            defer allocator.free(image_data);
 
-        const image_bytes = switch (image.pixelFormat()) {
-            .rgba32 => try arena_allocator.dupe(u8, image.pixels.asConstBytes()),
-            else => blk: {
-                const pixels = try zi.PixelFormatConverter.convert(
-                    arena_allocator,
-                    &image.pixels,
-                    .rgba32,
-                );
+            try buffer.file.seekTo(buffer.offset + buffer_view.byte_offset);
+            const read_size = try buffer.file.read(image_data);
+            if (read_size != buffer_view.byte_length) return error.EndOfLength;
 
-                break :blk pixels.asConstBytes();
-            },
+            break :blk try zi.Image.fromMemory(allocator, image_data);
         };
+        defer image_data.deinit();
 
-        out_texture.* = .{
-            .data = image_bytes,
-            .width = @intCast(image.width),
-            .height = @intCast(image.height),
+        texture.* = .{
+            .data = switch (image_data.pixelFormat()) {
+                .rgba32 => try arena_allocator.dupe(u8, image_data.pixels.asConstBytes()),
+                else => blk: {
+                    const pixels = try zi.PixelFormatConverter.convert(
+                        arena_allocator,
+                        &image_data.pixels,
+                        .rgba32,
+                    );
+                    break :blk pixels.asConstBytes();
+                },
+            },
+            .width = @intCast(image_data.width),
+            .height = @intCast(image_data.height),
         };
     }
 
@@ -308,74 +405,53 @@ fn loadTextures(
 
 fn loadMaterials(
     self: *Self,
-    gltf_data: *const c.cgltf_data,
+    gltf_data: Gltf,
 ) !void {
-    const materials = try self.arena.allocator().alloc(Material, gltf_data.materials_count);
+    const materials = try self.arena.allocator().alloc(Material, gltf_data.materials.len);
 
-    for (gltf_data.materials[0..gltf_data.materials_count], materials) |material, *out_material| {
-        if (material.has_pbr_metallic_roughness == 0) return error.NonPbrMaterial;
-        const Color = packed struct(u32) {
-            r: u8,
-            g: u8,
-            b: u8,
-            a: u8,
-        };
+    for (gltf_data.materials, materials) |gltf_material, *material| {
+        const pbr = gltf_material.pbr_metallic_roughness orelse return error.NonPbrMaterial;
 
-        const has_albedo = material.pbr_metallic_roughness.base_color_texture.texture != null;
-        const has_metal_roughness = material.pbr_metallic_roughness.metallic_roughness_texture.texture != null;
-        const has_normal = material.normal_texture.texture != null;
-        const has_emissive = material.emissive_texture.texture != null;
-
-        const albedo_color: Color = .{
-            .r = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[0] * 255.0),
-            .g = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[1] * 255.0),
-            .b = @intFromFloat(material.pbr_metallic_roughness.base_color_factor[2] * 255.0),
-            .a = 0,
-        };
-
-        const metal_roughness_color: Color = .{
-            .r = 0,
-            .g = @intFromFloat(material.pbr_metallic_roughness.roughness_factor * 255.0),
-            .b = @intFromFloat(material.pbr_metallic_roughness.metallic_factor * 255.0),
-            .a = 0,
-        };
-
-        const emissive_color: Color = .{
-            .r = @intFromFloat(material.emissive_factor[0] * 255.0),
-            .g = @intFromFloat(material.emissive_factor[1] * 255.0),
-            .b = @intFromFloat(material.emissive_factor[2] * 255.0),
-            .a = 0,
-        };
-
-        const albedo: u32 = if (material.pbr_metallic_roughness.base_color_texture.texture != null)
-            @intCast((@intFromPtr(material.pbr_metallic_roughness.base_color_texture.texture) -
-                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        const albedo: u32 = if (pbr.base_color_texture) |texture|
+            texture.index.get() | (@as(u32, 1) << 31)
         else
-            @bitCast(albedo_color);
+            @bitCast(Color{
+                .r = @intFromFloat(pbr.base_color_factor[0] * 255.0),
+                .g = @intFromFloat(pbr.base_color_factor[1] * 255.0),
+                .b = @intFromFloat(pbr.base_color_factor[2] * 255.0),
+                .a = 0,
+            });
 
-        const metal_roughness: u32 = if (material.pbr_metallic_roughness.metallic_roughness_texture.texture != null)
-            @intCast((@intFromPtr(material.pbr_metallic_roughness.metallic_roughness_texture.texture) -
-                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        const metal_roughness: u32 = if (pbr.metallic_roughness_texture) |texture|
+            texture.index.get() | (@as(u32, 1) << 31)
         else
-            @bitCast(metal_roughness_color);
+            @bitCast(Color{
+                .r = 0,
+                .g = @intFromFloat(pbr.roughness_factor * 255.0),
+                .b = @intFromFloat(pbr.metallic_factor * 255.0),
+                .a = 0,
+            });
 
-        const normal: u32 = if (material.normal_texture.texture != null)
-            @intCast((@intFromPtr(material.normal_texture.texture) -
-                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        const normal: u32 = if (gltf_material.normal_texture) |texture|
+            texture.index.get() | (@as(u32, 1) << 31)
         else
             0;
 
-        const emissive: u32 = if (material.emissive_texture.texture != null)
-            @intCast((@intFromPtr(material.emissive_texture.texture) -
-                @intFromPtr(gltf_data.textures)) / @sizeOf(c.cgltf_texture))
+        const emissive: u32 = if (gltf_material.emissive_texture) |texture|
+            texture.index.get() | (@as(u32, 1) << 31)
         else
-            @bitCast(emissive_color);
+            @bitCast(Color{
+                .r = @intFromFloat(gltf_material.emissive_factor[0] * 255.0),
+                .g = @intFromFloat(gltf_material.emissive_factor[1] * 255.0),
+                .b = @intFromFloat(gltf_material.emissive_factor[2] * 255.0),
+                .a = 0,
+            });
 
-        out_material.* = .{
-            .albedo = albedo | @as(u32, @intFromBool(has_albedo)) << 31,
-            .metal_roughness = metal_roughness | @as(u32, @intFromBool(has_metal_roughness)) << 31,
-            .normal = normal | @as(u32, @intFromBool(has_normal)) << 31,
-            .emissive = emissive | @as(u32, @intFromBool(has_emissive)) << 31,
+        material.* = .{
+            .albedo = albedo,
+            .metal_roughness = metal_roughness,
+            .normal = normal,
+            .emissive = emissive,
         };
     }
 
@@ -384,15 +460,18 @@ fn loadMaterials(
 
 fn loadScene(
     self: *Self,
-    gltf_data: *const c.cgltf_data,
+    gltf_data: Gltf,
     allocator: std.mem.Allocator,
 ) !void {
     var instances = std.ArrayList(Instance).init(allocator);
     defer instances.deinit();
 
-    for (gltf_data.scene.*.nodes[0..gltf_data.scene.*.nodes_count]) |node| {
+    if (gltf_data.scenes.len == 0) return error.NoScene;
+    if (gltf_data.scenes.len > 1) return error.TooManyScenes;
+
+    for (gltf_data.scenes[0].nodes) |node| {
         try loadSceneImpl(
-            node,
+            gltf_data.nodes[node],
             Mat4.identity(),
             gltf_data,
             &instances,
@@ -403,50 +482,44 @@ fn loadScene(
 }
 
 fn loadSceneImpl(
-    node: *c.cgltf_node,
+    node: Gltf.Node,
     parent_matrix: Mat4,
-    gltf_data: *const c.cgltf_data,
+    gltf_data: Gltf,
     instances: *std.ArrayList(Instance),
 ) !void {
     var matrix = parent_matrix;
-    if (node.mesh != null) {
-        if (node.*.has_translation != 0) matrix = matrix.mul(Mat4.translation(
+    if (node.mesh.getOrNull()) |mesh_index| {
+        matrix = matrix.mul(Mat4.translation(
             node.translation[0],
             node.translation[1],
             node.translation[2],
         ));
 
-        if (node.has_rotation != 0) matrix = matrix.mul(
-            Mat4.rotationFromQuaternion(
-                [4]f32{
-                    node.rotation[3],
-                    node.rotation[0],
-                    node.rotation[1],
-                    node.rotation[2],
-                },
-            ),
-        );
+        matrix = matrix.mul(Mat4.rotationFromQuaternion(.{
+            node.rotation[3],
+            node.rotation[0],
+            node.rotation[1],
+            node.rotation[2],
+        }));
 
-        if (node.has_scale != 0) matrix = matrix.mul(Mat4.scaling(
+        matrix = matrix.mul(Mat4.scaling(
             node.scale[0],
             node.scale[1],
             node.scale[2],
         ));
 
         try instances.append(.{
-            .mesh_index = @divExact(@intFromPtr(node.mesh) - @intFromPtr(gltf_data.meshes), @sizeOf(c.cgltf_mesh)),
+            .mesh_index = mesh_index,
             .transform = matrix.transpose(),
         });
     }
 
-    if (node.children_count != 0) {
-        for (node.children[0..node.children_count]) |child| {
-            try loadSceneImpl(
-                child,
-                matrix,
-                gltf_data,
-                instances,
-            );
-        }
+    for (node.children) |child_index| {
+        try loadSceneImpl(
+            gltf_data.nodes[child_index],
+            matrix,
+            gltf_data,
+            instances,
+        );
     }
 }
