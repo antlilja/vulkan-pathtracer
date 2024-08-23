@@ -90,7 +90,7 @@ pub fn main() !void {
     });
     defer window.destroy();
 
-    const gc = blk: {
+    var gc = blk: {
         const features = try Features.init(
             NuklearPass.features ++ RaytracingPass.features,
             allocator,

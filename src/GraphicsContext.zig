@@ -34,7 +34,7 @@ const Self = @This();
 
 allocator: std.mem.Allocator,
 
-vulkan_handle: *anyopaque,
+vulkan_handle: std.DynLib,
 
 vkb: BaseDispatch,
 
@@ -68,21 +68,11 @@ pub fn init(
 
     self.allocator = allocator;
 
-    self.vulkan_handle = switch (builtin.target.os.tag) {
-        .linux => std.c.dlopen("libvulkan.so.1", 2),
-        .windows => blk: {
-            const load_library_fn = @extern(*const fn (name: [*:0]const u8) callconv(.C) ?*anyopaque, .{
-                .name = "LoadLibraryA",
-                .linkage = .strong,
-            });
-            break :blk load_library_fn("vulkan-1.dll");
-        },
-        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
-    } orelse return error.FailedToLoadVulkan;
-    errdefer self.freeLibrary();
+    self.vulkan_handle = try std.DynLib.open("libvulkan.so.1");
+    errdefer self.vulkan_handle.close();
 
-    const get_instance_proc_addr_fn = self.loadFunction(
-        ?vk.PfnGetInstanceProcAddr,
+    const get_instance_proc_addr_fn = self.vulkan_handle.lookup(
+        vk.PfnGetInstanceProcAddr,
         "vkGetInstanceProcAddr",
     ) orelse return error.FailedToLoadVulkan;
 
@@ -316,7 +306,7 @@ pub fn init(
     return self;
 }
 
-pub fn deinit(self: Self) void {
+pub fn deinit(self: *Self) void {
     self.device.destroyDevice(null);
     self.instance.destroySurfaceKHR(self.surface, null);
     self.instance.destroyInstance(null);
@@ -324,7 +314,7 @@ pub fn deinit(self: Self) void {
     self.allocator.destroy(self.device.wrapper);
     self.allocator.destroy(self.instance.wrapper);
 
-    _ = std.c.dlclose(self.vulkan_handle);
+    self.vulkan_handle.close();
 }
 
 pub fn findMemoryTypeIndex(self: Self, memory_type_bits: u32, flags: vk.MemoryPropertyFlags) !u32 {
@@ -342,37 +332,4 @@ pub fn allocate(self: Self, requirements: vk.MemoryRequirements, flags: vk.Memor
         .allocation_size = requirements.size,
         .memory_type_index = try self.findMemoryTypeIndex(requirements.memory_type_bits, flags),
     }, null);
-}
-
-fn freeLibrary(self: *const Self) void {
-    switch (builtin.os.tag) {
-        .linux => _ = std.c.dlclose(self.vulkan_handle),
-        .windows => {
-            const free_library_fn = @extern(*const fn (hmodule: *anyopaque) callconv(.C) c_int, .{
-                .name = "FreeLibrary",
-            });
-            _ = free_library_fn(self.vulkan_handle);
-        },
-        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
-    }
-}
-
-fn loadFunction(
-    self: *const Self,
-    comptime FnType: type,
-    name: [*:0]const u8,
-) FnType {
-    return @alignCast(@ptrCast(switch (builtin.target.os.tag) {
-        .linux => std.c.dlsym(self.vulkan_handle, name),
-        .windows => blk: {
-            const get_proc_address_fn = @extern(
-                *const fn (hmodule: *anyopaque, name: [*:0]const u8) callconv(.C) ?*anyopaque,
-                .{
-                    .name = "GetProcAddress",
-                },
-            );
-            break :blk get_proc_address_fn(self.vulkan_handle, name);
-        },
-        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
-    } orelse unreachable));
 }
