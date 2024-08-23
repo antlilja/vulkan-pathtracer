@@ -1,7 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
-
-const Mat4 = @import("Mat4.zig");
+const za = @import("zalgebra");
 
 const zgltf = @import("zgltf");
 const Gltf = zgltf.Gltf(.{
@@ -14,7 +13,7 @@ const Self = @This();
 
 pub const Instance = struct {
     mesh_index: usize,
-    transform: Mat4,
+    transform: za.Mat4,
 };
 
 pub const Mesh = struct {
@@ -472,7 +471,7 @@ fn loadScene(
     for (gltf_data.scenes[0].nodes) |node| {
         try loadSceneImpl(
             gltf_data.nodes[node],
-            Mat4.identity(),
+            za.Mat4.identity(),
             gltf_data,
             &instances,
         );
@@ -483,30 +482,22 @@ fn loadScene(
 
 fn loadSceneImpl(
     node: Gltf.Node,
-    parent_matrix: Mat4,
+    parent_matrix: za.Mat4,
     gltf_data: Gltf,
     instances: *std.ArrayList(Instance),
 ) !void {
     var matrix = parent_matrix;
     if (node.mesh.getOrNull()) |mesh_index| {
-        matrix = matrix.mul(Mat4.translation(
-            node.translation[0],
-            node.translation[1],
-            node.translation[2],
-        ));
+        matrix = matrix.translate(za.Vec3.fromSlice(&node.translation));
 
-        matrix = matrix.mul(Mat4.rotationFromQuaternion(.{
+        matrix = matrix.mul(za.Quat.new(
             node.rotation[3],
             node.rotation[0],
             node.rotation[1],
             node.rotation[2],
-        }));
+        ).toMat4());
 
-        matrix = matrix.mul(Mat4.scaling(
-            node.scale[0],
-            node.scale[1],
-            node.scale[2],
-        ));
+        matrix = matrix.scale(za.Vec3.fromSlice(&node.scale));
 
         try instances.append(.{
             .mesh_index = mesh_index,

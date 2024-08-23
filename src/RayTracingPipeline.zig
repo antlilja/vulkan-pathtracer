@@ -1,5 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
+const za = @import("zalgebra");
 const shaders = @import("shaders");
 
 const GraphicsContext = @import("GraphicsContext.zig");
@@ -7,6 +8,15 @@ const GraphicsContext = @import("GraphicsContext.zig");
 const Tlas = @import("Tlas.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
+
+pub const PushConstants = extern struct {
+    position: za.Vec4,
+    horizontal: za.Vec4,
+    vertical: za.Vec4,
+    forward: za.Vec4,
+
+    frame_count: u32,
+};
 
 const Self = @This();
 
@@ -217,14 +227,14 @@ pub fn init(
     const push_constant_range = vk.PushConstantRange{
         .stage_flags = .{ .raygen_bit_khr = true },
         .offset = 0,
-        .size = 128,
+        .size = @sizeOf(PushConstants),
     };
     const pipeline_layout = try gc.device.createPipelineLayout(&.{
         .flags = .{},
         .set_layout_count = 1,
-        .p_set_layouts = @as([*]const vk.DescriptorSetLayout, @ptrCast(&descriptor_set_layout)),
+        .p_set_layouts = @ptrCast(&descriptor_set_layout),
         .push_constant_range_count = 1,
-        .p_push_constant_ranges = @as([*]const vk.PushConstantRange, @ptrCast(&push_constant_range)),
+        .p_push_constant_ranges = @ptrCast(&push_constant_range),
     }, null);
     errdefer gc.device.destroyPipelineLayout(pipeline_layout, null);
 

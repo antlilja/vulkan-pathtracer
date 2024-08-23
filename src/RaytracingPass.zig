@@ -549,12 +549,12 @@ pub fn record(
         undefined,
     );
 
-    const push_constants = .{
-        [4]f32{ camera.position.x, camera.position.y, camera.position.z, 1.0 },
-        [4]f32{ camera.horizontal.x, camera.horizontal.y, camera.horizontal.z, 0.0 },
-        [4]f32{ camera.vertical.x, camera.vertical.y, camera.vertical.z, 0.0 },
-        [4]f32{ camera.forward.x, camera.forward.y, camera.forward.z, 0.0 },
-        frame_count,
+    const push_constants = RayTracingPipeline.PushConstants{
+        .position = camera.position.toVec4(1.0),
+        .horizontal = camera.horizontal.toVec4(0.0),
+        .vertical = camera.vertical.toVec4(0.0),
+        .forward = camera.forward.toVec4(0.0),
+        .frame_count = frame_count,
     };
 
     gc.device.cmdPushConstants(
@@ -562,7 +562,7 @@ pub fn record(
         self.pipeline.pipeline_layout,
         .{ .raygen_bit_khr = true },
         0,
-        128,
+        @sizeOf(RayTracingPipeline.PushConstants),
         @ptrCast(&push_constants),
     );
 

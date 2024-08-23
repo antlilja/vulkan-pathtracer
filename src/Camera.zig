@@ -1,22 +1,21 @@
 const std = @import("std");
 
-const Vec3 = @import("Vec3.zig");
-const Mat4 = @import("Mat4.zig");
+const za = @import("zalgebra");
 
 const Self = @This();
 
 fov: f32,
 
-position: Vec3,
+position: za.Vec3,
 pitch: f32,
 yaw: f32,
 
-rotation_matrix: Mat4,
-horizontal: Vec3,
-vertical: Vec3,
-forward: Vec3,
+rotation_matrix: za.Mat4,
+horizontal: za.Vec3,
+vertical: za.Vec3,
+forward: za.Vec3,
 
-pub fn new(position: Vec3, pitch: f32, yaw: f32, fov: f32) Self {
+pub fn new(position: za.Vec3, pitch: f32, yaw: f32, fov: f32) Self {
     return Self{
         .fov = fov,
 
@@ -31,30 +30,30 @@ pub fn new(position: Vec3, pitch: f32, yaw: f32, fov: f32) Self {
     };
 }
 
-pub fn moveRotated(self: *Self, camera_space_velocity: Vec3) void {
-    const velocity = camera_space_velocity.transformDirection(self.rotation_matrix);
+pub fn moveRotated(self: *Self, camera_space_velocity: za.Vec3) void {
+    const velocity = self.rotation_matrix.mulByVec4(camera_space_velocity.toVec4(0.0)).toVec3();
     self.position = self.position.add(velocity);
 }
 
-pub fn move(self: *Self, velocity: Vec3) void {
+pub fn move(self: *Self, velocity: za.Vec3) void {
     self.position = self.position.add(velocity);
 }
 
 pub fn update(self: *Self, aspect_ratio: f32) void {
-    self.pitch = std.math.clamp(self.pitch, -std.math.pi * 0.5, std.math.pi * 0.5);
+    self.pitch = std.math.clamp(self.pitch, -90.0, 90.0);
 
-    self.rotation_matrix = Mat4.angleAxis(
-        Vec3.unit_y,
+    self.rotation_matrix = za.Mat4.fromRotation(
         self.yaw,
-    ).mul(Mat4.angleAxis(
-        Vec3.unit_x,
+        za.Vec3.up(),
+    ).rotate(
         self.pitch,
-    ));
+        za.Vec3.right(),
+    );
 
     const viewport_height = 2.0 * std.math.tan(self.fov * 0.5);
     const viewport_width = viewport_height * aspect_ratio;
 
-    self.horizontal = Vec3.unit_x.transformDirection(self.rotation_matrix).scale(-viewport_width);
-    self.vertical = Vec3.unit_y.transformDirection(self.rotation_matrix).scale(viewport_height);
-    self.forward = Vec3.unit_z.transformDirection(self.rotation_matrix);
+    self.horizontal = self.rotation_matrix.mulByVec4(za.Vec4.right()).toVec3().norm().scale(-viewport_width);
+    self.vertical = self.rotation_matrix.mulByVec4(za.Vec4.up()).toVec3().norm().scale(viewport_height);
+    self.forward = self.rotation_matrix.mulByVec4(za.Vec4.forward()).toVec3().norm();
 }

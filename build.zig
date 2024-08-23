@@ -60,6 +60,10 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     }).module("zgltf"));
+    exe.root_module.addImport("zalgebra", b.dependency("zalgebra", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("zalgebra"));
     exe.linkLibrary(nuklear_lib);
     b.installArtifact(exe);
 

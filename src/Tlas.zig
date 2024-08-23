@@ -30,11 +30,16 @@ pub fn init(
         *instance,
     | {
         instance.* = .{
-            .transform = .{ .matrix = .{
-                .{ blas_instance.transform.elements[0], blas_instance.transform.elements[1], blas_instance.transform.elements[2], blas_instance.transform.elements[3] },
-                .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
-                .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
-            } },
+            .transform = .{
+                .matrix = .{
+                    blas_instance.transform.data[0],
+                    blas_instance.transform.data[1],
+                    blas_instance.transform.data[2],
+                    // .{ blas_instance.transform.elements[0], blas_instance.transform.elements[1], blas_instance.transform.elements[2], blas_instance.transform.elements[3] },
+                    // .{ blas_instance.transform.elements[4], blas_instance.transform.elements[5], blas_instance.transform.elements[6], blas_instance.transform.elements[7] },
+                    // .{ blas_instance.transform.elements[8], blas_instance.transform.elements[9], blas_instance.transform.elements[10], blas_instance.transform.elements[11] },
+                },
+            },
             .instance_custom_index_and_mask = .{
                 .instance_custom_index = @intCast(scene.meshes[blas_instance.mesh_index].start),
                 .mask = 0xff,

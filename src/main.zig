@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const vk = @import("vulkan");
+const za = @import("zalgebra");
 const clap = @import("clap");
 
 const zw = @import("zig-window");
@@ -8,8 +9,6 @@ const zw = @import("zig-window");
 const Timer = @import("Timer.zig");
 const Input = @import("Input.zig");
 const Nuklear = @import("Nuklear.zig");
-
-const Vec3 = @import("Vec3.zig");
 
 const Features = @import("Features.zig");
 const GraphicsContext = @import("GraphicsContext.zig");
@@ -204,7 +203,7 @@ pub fn main() !void {
     }
 
     var camera = Camera.new(
-        Vec3.new(0.0, 0.0, 0.0),
+        za.Vec3.new(0.0, 0.0, 0.0),
         0.0,
         0.0,
         std.math.pi * 0.25,
@@ -240,30 +239,30 @@ pub fn main() !void {
 
         // Camera movement
         if (!nuklear.isCapturingInput()) {
-            var velocity_camera_space = Vec3.zero;
-            var velocity = Vec3.zero;
+            var velocity_camera_space = za.Vec3.zero();
+            var velocity = za.Vec3.zero();
             if (input.isKeyPressed(.w)) {
-                velocity_camera_space = velocity_camera_space.add(Vec3.new(0.0, 0.0, delta_time));
+                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(0.0, 0.0, delta_time));
             }
 
             if (input.isKeyPressed(.s)) {
-                velocity_camera_space = velocity_camera_space.add(Vec3.new(0.0, 0.0, -delta_time));
+                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(0.0, 0.0, -delta_time));
             }
 
             if (input.isKeyPressed(.a)) {
-                velocity_camera_space = velocity_camera_space.add(Vec3.new(delta_time, 0.0, 0.0));
+                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(delta_time, 0.0, 0.0));
             }
 
             if (input.isKeyPressed(.d)) {
-                velocity_camera_space = velocity_camera_space.add(Vec3.new(-delta_time, 0.0, 0.0));
+                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(-delta_time, 0.0, 0.0));
             }
 
             if (input.isKeyPressed(.space)) {
-                velocity = velocity.add(Vec3.new(0.0, delta_time, 0.0));
+                velocity = velocity.add(za.Vec3.new(0.0, delta_time, 0.0));
             }
 
             if (input.isKeyPressed(.left_ctrl)) {
-                velocity = velocity.add(Vec3.new(0.0, -delta_time, 0.0));
+                velocity = velocity.add(za.Vec3.new(0.0, -delta_time, 0.0));
             }
 
             const speed: f32 = if (input.isKeyPressed(.left_shift)) 20.0 else 10.0;
@@ -272,12 +271,12 @@ pub fn main() !void {
             velocity = velocity.scale(speed);
 
             camera_update = false;
-            if (!velocity_camera_space.eql(Vec3.zero)) {
+            if (!velocity_camera_space.eql(za.Vec3.zero())) {
                 camera.moveRotated(velocity_camera_space);
                 camera_update = true;
             }
 
-            if (!velocity.eql(Vec3.zero)) {
+            if (!velocity.eql(za.Vec3.zero())) {
                 camera.move(velocity);
                 camera_update = true;
             }
@@ -285,8 +284,8 @@ pub fn main() !void {
             if (input.isMouseButtonPressed(.left)) {
                 const cursor_delta_x: f32 = @floatFromInt(input.cursor_delta_x);
                 const cursor_delta_y: f32 = @floatFromInt(input.cursor_delta_y);
-                camera.yaw -= cursor_delta_x * 0.005;
-                camera.pitch += cursor_delta_y * 0.005;
+                camera.yaw -= cursor_delta_x * 0.25;
+                camera.pitch += cursor_delta_y * 0.25;
 
                 if (input.cursor_delta_x != 0.0 or input.cursor_delta_y != 0.0) {
                     camera_update = true;

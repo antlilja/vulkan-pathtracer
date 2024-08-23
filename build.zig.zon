@@ -23,6 +23,10 @@
             .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
             .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
         },
+        .zalgebra = .{
+            .url = "https://github.com/kooparse/zalgebra/archive/e36116987d11c4a28ab8a03ab62d71be8b81404a.tar.gz",
+            .hash = "12200e1b17e15217623e36563e459164fff4debb8210ea9d027d8548aca6d30f0811",
+        },
         .zigimg = .{
             .url = "https://github.com/zigimg/zigimg/archive/d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d.tar.gz",
             .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
