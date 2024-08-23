@@ -215,14 +215,21 @@ pub fn main() !void {
 
     var timer = Timer.start();
     while (window.isOpen()) {
-        defer timer.lap();
-        defer stats.lap(timer);
-        defer nuklear.clear();
+        defer {
+            timer.lap();
+            stats.lap(timer);
 
-        zw.pollEvents();
+            zw.pollEvents();
+            input.update();
 
-        input.update();
-        nuklear.update(&input);
+            nuklear.clear();
+            nuklear.update(&input);
+        }
+
+        // Camera movement
+        if (!nuklear.isCapturingInput()) camera.update(input, timer);
+
+        stats.window(&nuklear);
 
         const width, const height = window.getSize();
 
@@ -230,11 +237,6 @@ pub fn main() !void {
         if (width == 0 or height == 0) continue;
 
         defer total_frame_count += 1;
-
-        // Camera movement
-        if (!nuklear.isCapturingInput()) camera.update(input, timer);
-
-        stats.window(&nuklear);
 
         const cmdbuf = cmdbufs[swapchain.image_index];
         {
