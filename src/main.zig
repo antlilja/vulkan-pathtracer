@@ -230,6 +230,12 @@ pub fn main() !void {
         };
     };
 
+    var total_frame_count: u32 = 0;
+    var frame_count: u32 = 0;
+    var frame_count_acc: u32 = 0;
+    var average_frame_time: f32 = 0.0;
+    var average_frame_time_acc: f32 = 0.0;
+
     var timer = Timer.start();
     while (window.isOpen()) {
         defer timer.lap();
@@ -246,6 +252,19 @@ pub fn main() !void {
 
         // Don't present or resize swapchain while the window is minimized
         if (width == 0 or height == 0) continue;
+
+        defer {
+            total_frame_count += 1;
+            frame_count_acc += 1;
+            average_frame_time_acc += delta_time;
+            if (timer.second_elapsed) {
+                frame_count = frame_count_acc;
+                frame_count_acc = 0;
+
+                average_frame_time = average_frame_time_acc / @as(f32, @floatFromInt(frame_count));
+                average_frame_time_acc = 0.0;
+            }
+        }
 
         // Camera movement
         if (!nuklear.isCapturingInput()) {
@@ -318,13 +337,13 @@ pub fn main() !void {
             nuklear.layout_row_static(30.0, 175, 1);
 
             nuklear.labelFmt(
-                "FPS: {d:.0}",
-                .{1.0 / timer.frame_time},
+                "FPS: {}",
+                .{frame_count},
                 .left,
             );
             nuklear.labelFmt(
                 "Frame time: {d:.4} ms",
-                .{timer.frame_time * std.time.ms_per_s},
+                .{average_frame_time},
                 .left,
             );
 
@@ -353,7 +372,7 @@ pub fn main() !void {
                 extent,
                 cmdbuf,
                 camera,
-                timer.frame_count,
+                total_frame_count,
             );
 
             const viewport = vk.Viewport{
