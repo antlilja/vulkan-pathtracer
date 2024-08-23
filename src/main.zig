@@ -21,6 +21,8 @@ const RaytracingPass = @import("RaytracingPass.zig");
 
 const Camera = @import("Camera.zig");
 
+const Stats = @import("Stats.zig");
+
 const app_name = "Engine";
 
 pub const vk_extra_apis = NuklearPass.apis ++ RaytracingPass.apis;
@@ -211,34 +213,15 @@ pub fn main() !void {
 
     var camera_update: bool = false;
 
-    const vram_budgets, const vram_usages, const vram_types, const vram_types_count = blk: {
-        var budget_props = vk.PhysicalDeviceMemoryBudgetPropertiesEXT{
-            .heap_budget = undefined,
-            .heap_usage = undefined,
-        };
-        var props = vk.PhysicalDeviceMemoryProperties2{
-            .p_next = @ptrCast(&budget_props),
-            .memory_properties = undefined,
-        };
-        gc.instance.getPhysicalDeviceMemoryProperties2(gc.physical_device, &props);
-
-        break :blk .{
-            budget_props.heap_budget,
-            budget_props.heap_usage,
-            props.memory_properties.memory_heaps,
-            props.memory_properties.memory_heap_count,
-        };
-    };
+    var stats = try Stats.init(&gc, allocator);
+    defer stats.deinit(allocator);
 
     var total_frame_count: u32 = 0;
-    var frame_count: u32 = 0;
-    var frame_count_acc: u32 = 0;
-    var average_frame_time: f32 = 0.0;
-    var average_frame_time_acc: f32 = 0.0;
 
     var timer = Timer.start();
     while (window.isOpen()) {
         defer timer.lap();
+        defer stats.lap(timer);
         defer nuklear.clear();
 
         zw.pollEvents();
@@ -253,18 +236,7 @@ pub fn main() !void {
         // Don't present or resize swapchain while the window is minimized
         if (width == 0 or height == 0) continue;
 
-        defer {
-            total_frame_count += 1;
-            frame_count_acc += 1;
-            average_frame_time_acc += delta_time;
-            if (timer.second_elapsed) {
-                frame_count = frame_count_acc;
-                frame_count_acc = 0;
-
-                average_frame_time = average_frame_time_acc / @as(f32, @floatFromInt(frame_count));
-                average_frame_time_acc = 0.0;
-            }
-        }
+        defer total_frame_count += 1;
 
         // Camera movement
         if (!nuklear.isCapturingInput()) {
@@ -326,40 +298,7 @@ pub fn main() !void {
             }
         }
 
-        if (nuklear.begin(
-            "FPS Info",
-            .{
-                .x = 0.0,
-                .y = 0.0,
-                .w = 175.0,
-                .h = 75.0,
-            },
-            .{},
-        )) {
-            nuklear.layoutRowStatic(30.0, 175, 1);
-
-            nuklear.labelFmt(
-                "FPS: {}",
-                .{frame_count},
-                .left,
-            );
-            nuklear.labelFmt(
-                "Frame time: {d:.4} ms",
-                .{average_frame_time},
-                .left,
-            );
-
-            for (0..vram_types_count) |i| {
-                if (vram_types[i].flags.device_local_bit) {
-                    nuklear.label("Device local:", .left);
-                } else {
-                    nuklear.label("Host: ", .left);
-                }
-                nuklear.labelFmt("Usage: {} MB", .{vram_usages[i] / 1000000}, .left);
-                nuklear.labelFmt("Budget: {} MB", .{vram_budgets[i] / 1000000}, .left);
-            }
-        }
-        nuklear.end();
+        stats.window(&nuklear);
 
         const cmdbuf = cmdbufs[swapchain.image_index];
         {
