@@ -222,8 +222,7 @@ pub fn main() !void {
             input.reset();
             zw.pollEvents();
 
-            nuklear.clear();
-            nuklear.update(input);
+            nuklear.reset(input);
         }
 
         // Camera movement

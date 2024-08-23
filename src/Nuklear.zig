@@ -178,7 +178,10 @@ pub fn init(allocator: std.mem.Allocator) !Self {
     };
 }
 
-pub fn update(self: *Self, input: Input) void {
+pub fn reset(self: *Self, input: Input) void {
+    nk.nk_buffer_clear(&self.cmd_buffer);
+    nk.nk_clear(&self.context);
+
     nk.nk_input_begin(&self.context);
     defer nk.nk_input_end(&self.context);
 
@@ -228,11 +231,6 @@ pub fn update(self: *Self, input: Input) void {
         .x = 0.0,
         .y = @floatFromInt(input.scroll),
     });
-}
-
-pub fn clear(self: *Self) void {
-    nk.nk_buffer_clear(&self.cmd_buffer);
-    nk.nk_clear(&self.context);
 }
 
 pub fn isCapturingInput(self: *Self) bool {
