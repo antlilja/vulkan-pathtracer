@@ -169,8 +169,8 @@ pub fn update(self: *Self, input: *const Input) void {
 
     nk.nk_input_motion(
         &self.context,
-        @intFromFloat(input.cursor_x),
-        @intFromFloat(input.cursor_y),
+        input.cursor_x,
+        input.cursor_y,
     );
 
     if (input.isMouseButtonPressed(.left)) {
@@ -193,7 +193,7 @@ pub fn update(self: *Self, input: *const Input) void {
 
     nk.nk_input_scroll(&self.context, .{
         .x = 0.0,
-        .y = input.scroll,
+        .y = @floatFromInt(input.scroll),
     });
 }
 

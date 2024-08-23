@@ -311,8 +311,10 @@ pub fn main() !void {
             }
 
             if (input.isMouseButtonPressed(.left)) {
-                camera.yaw -= @as(f32, @floatCast(input.cursor_delta_x)) * 0.005;
-                camera.pitch += @as(f32, @floatCast(input.cursor_delta_y)) * 0.005;
+                const cursor_delta_x: f32 = @floatFromInt(input.cursor_delta_x);
+                const cursor_delta_y: f32 = @floatFromInt(input.cursor_delta_y);
+                camera.yaw -= cursor_delta_x * 0.005;
+                camera.pitch += cursor_delta_y * 0.005;
 
                 if (input.cursor_delta_x != 0.0 or input.cursor_delta_y != 0.0) {
                     camera_update = true;
