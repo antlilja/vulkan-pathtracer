@@ -203,14 +203,10 @@ pub fn main() !void {
     }
 
     var camera = Camera.new(
-        za.Vec3.new(0.0, 0.0, 0.0),
-        0.0,
-        0.0,
         std.math.pi * 0.25,
+        @as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)),
+        za.Vec3.new(0.0, 0.0, 0.0),
     );
-    camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
-
-    var camera_update: bool = false;
 
     var stats = try Stats.init(&gc, allocator);
     defer stats.deinit(allocator);
@@ -228,8 +224,6 @@ pub fn main() !void {
         input.update();
         nuklear.update(&input);
 
-        const delta_time = timer.delta_time;
-
         const width, const height = window.getSize();
 
         // Don't present or resize swapchain while the window is minimized
@@ -238,64 +232,7 @@ pub fn main() !void {
         defer total_frame_count += 1;
 
         // Camera movement
-        if (!nuklear.isCapturingInput()) {
-            var velocity_camera_space = za.Vec3.zero();
-            var velocity = za.Vec3.zero();
-            if (input.isKeyPressed(.w)) {
-                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(0.0, 0.0, delta_time));
-            }
-
-            if (input.isKeyPressed(.s)) {
-                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(0.0, 0.0, -delta_time));
-            }
-
-            if (input.isKeyPressed(.a)) {
-                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(delta_time, 0.0, 0.0));
-            }
-
-            if (input.isKeyPressed(.d)) {
-                velocity_camera_space = velocity_camera_space.add(za.Vec3.new(-delta_time, 0.0, 0.0));
-            }
-
-            if (input.isKeyPressed(.space)) {
-                velocity = velocity.add(za.Vec3.new(0.0, delta_time, 0.0));
-            }
-
-            if (input.isKeyPressed(.left_ctrl)) {
-                velocity = velocity.add(za.Vec3.new(0.0, -delta_time, 0.0));
-            }
-
-            const speed: f32 = if (input.isKeyPressed(.left_shift)) 20.0 else 10.0;
-
-            velocity_camera_space = velocity_camera_space.scale(speed);
-            velocity = velocity.scale(speed);
-
-            camera_update = false;
-            if (!velocity_camera_space.eql(za.Vec3.zero())) {
-                camera.moveRotated(velocity_camera_space);
-                camera_update = true;
-            }
-
-            if (!velocity.eql(za.Vec3.zero())) {
-                camera.move(velocity);
-                camera_update = true;
-            }
-
-            if (input.isMouseButtonPressed(.left)) {
-                const cursor_delta_x: f32 = @floatFromInt(input.cursor_delta_x);
-                const cursor_delta_y: f32 = @floatFromInt(input.cursor_delta_y);
-                camera.yaw -= cursor_delta_x * 0.25;
-                camera.pitch += cursor_delta_y * 0.25;
-
-                if (input.cursor_delta_x != 0.0 or input.cursor_delta_y != 0.0) {
-                    camera_update = true;
-                }
-            }
-
-            if (camera_update) {
-                camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
-            }
-        }
+        if (!nuklear.isCapturingInput()) camera.update(input, timer);
 
         stats.window(&nuklear);
 
@@ -389,7 +326,9 @@ pub fn main() !void {
                 &swapchain,
             );
 
-            camera.update(@as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)));
+            camera.updateAspectRatio(
+                @as(f32, @floatFromInt(extent.width)) / @as(f32, @floatFromInt(extent.height)),
+            );
 
             try raytracing_pass.resize(
                 &gc,
