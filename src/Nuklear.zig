@@ -178,7 +178,7 @@ pub fn init(allocator: std.mem.Allocator) !Self {
     };
 }
 
-pub fn update(self: *Self, input: *const Input) void {
+pub fn update(self: *Self, input: Input) void {
     nk.nk_input_begin(&self.context);
     defer nk.nk_input_end(&self.context);
 

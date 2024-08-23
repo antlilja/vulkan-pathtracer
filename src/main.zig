@@ -223,7 +223,7 @@ pub fn main() !void {
             input.update();
 
             nuklear.clear();
-            nuklear.update(&input);
+            nuklear.update(input);
         }
 
         // Camera movement
