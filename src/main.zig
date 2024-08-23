@@ -242,6 +242,7 @@ pub fn main() !void {
             const swap_image = swapchain.currentImage();
             try swap_image.waitForFence(&gc);
 
+            try gc.device.resetCommandBuffer(cmdbuf, .{});
             try gc.device.beginCommandBuffer(cmdbuf, &.{});
 
             try raytracing_pass.record(
