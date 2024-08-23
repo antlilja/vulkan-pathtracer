@@ -219,8 +219,8 @@ pub fn main() !void {
             timer.lap();
             stats.lap(timer);
 
+            input.reset();
             zw.pollEvents();
-            input.update();
 
             nuklear.clear();
             nuklear.update(input);

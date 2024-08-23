@@ -38,7 +38,7 @@ pub fn handleEvent(self: *Self, event: zw.Event) void {
     }
 }
 
-pub fn update(self: *Self) void {
+pub fn reset(self: *Self) void {
     self.cursor_delta_x = self.cursor_x - self.last_cursor_x;
     self.cursor_delta_y = self.cursor_y - self.last_cursor_y;
 
