@@ -221,21 +221,21 @@ pub fn main() !void {
 
             input.reset();
             zw.pollEvents();
-
-            nuklear.reset(input);
         }
 
         // Camera movement
         if (!nuklear.isCapturingInput()) camera.update(input, timer);
 
-        stats.window(&nuklear);
-
         const width, const height = window.getSize();
 
         // Don't present or resize swapchain while the window is minimized
         if (width == 0 or height == 0) continue;
+        defer {
+            total_frame_count += 1;
+            nuklear.reset(input);
+        }
 
-        defer total_frame_count += 1;
+        stats.window(&nuklear);
 
         const cmdbuf = cmdbufs[swapchain.image_index];
         {
