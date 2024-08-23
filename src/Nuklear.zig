@@ -30,6 +30,21 @@ pub const TextAlignment = enum(c_uint) {
     right = nk.NK_TEXT_RIGHT,
 };
 
+pub const TreeType = enum(c_uint) {
+    node = nk.NK_TREE_NODE,
+    tab = nk.NK_TREE_TAB,
+};
+
+pub const CollapseState = enum(c_uint) {
+    minimized = nk.NK_MINIMIZED,
+    maximized = nk.NK_MAXIMIZED,
+};
+
+pub const ChartType = enum(c_uint) {
+    lines = nk.NK_CHART_LINES,
+    column = nk.NK_CHART_COLUMN,
+};
+
 const Self = @This();
 
 font_atlas_memory: []const u8,
@@ -367,6 +382,14 @@ pub fn layoutRowStatic(self: *Self, height: f32, item_width: u32, columns: u32) 
     );
 }
 
+pub fn layoutRowDynamic(self: *Self, height: f32, columns: u32) void {
+    nk.nk_layout_row_dynamic(
+        &self.context,
+        height,
+        @intCast(columns),
+    );
+}
+
 pub fn label(
     self: *Self,
     text: [*:0]const u8,
@@ -388,4 +411,131 @@ pub fn labelFmt(
     var buffer: [128]u8 = undefined;
     const text = std.fmt.bufPrintZ(&buffer, fmt, args) catch unreachable;
     self.label(text, alignment);
+}
+
+pub fn treePushId(
+    self: *Self,
+    @"type": TreeType,
+    title: [*:0]const u8,
+    state: CollapseState,
+    source_location: std.builtin.SourceLocation,
+    id: u32,
+) bool {
+    return nk.nk_tree_push_hashed(
+        &self.context,
+        @intFromEnum(@"type"),
+        title,
+        @intFromEnum(state),
+        std.mem.asBytes(&source_location),
+        @sizeOf(std.builtin.SourceLocation),
+        @bitCast(id),
+    ) != 0;
+}
+
+pub fn treePush(
+    self: *Self,
+    @"type": TreeType,
+    title: [*:0]const u8,
+    state: CollapseState,
+    source_location: std.builtin.SourceLocation,
+) bool {
+    return self.treePushId(
+        @"type",
+        title,
+        state,
+        source_location,
+        0,
+    );
+}
+
+pub fn treePushFmt(
+    self: *Self,
+    @"type": TreeType,
+    comptime fmt: []const u8,
+    args: anytype,
+    state: CollapseState,
+    source_location: std.builtin.SourceLocation,
+) bool {
+    var buffer: [256]u8 = undefined;
+    const title = std.fmt.bufPrintZ(&buffer, fmt, args) catch unreachable;
+    return self.treePush(
+        @"type",
+        title.ptr,
+        state,
+        source_location,
+    );
+}
+
+pub fn treePushIdFmt(
+    self: *Self,
+    @"type": TreeType,
+    comptime fmt: []const u8,
+    args: anytype,
+    state: CollapseState,
+    source_location: std.builtin.SourceLocation,
+    id: u32,
+) bool {
+    var buffer: [256]u8 = undefined;
+    const title = std.fmt.bufPrintZ(&buffer, fmt, args) catch unreachable;
+    return self.treePushId(
+        @"type",
+        title.ptr,
+        state,
+        source_location,
+        id,
+    );
+}
+
+pub fn treePop(self: *Self) void {
+    nk.nk_tree_pop(&self.context);
+}
+
+pub fn groupBegin(self: *Self, title: [*:0]const u8, flags: WindowFlags) bool {
+    return nk.nk_group_begin(
+        &self.context,
+        title,
+        @bitCast(flags),
+    ) == nk.nk_true;
+}
+
+pub fn groupEnd(self: *Self) void {
+    nk.nk_group_end(&self.context);
+}
+
+pub fn buttonLabel(self: *Self, title: [*:0]const u8) bool {
+    return nk.nk_button_label(&self.context, title) == nk.nk_true;
+}
+
+pub fn propertyFloat(
+    self: *Self,
+    name: [*:0]const u8,
+    min: f32,
+    max: f32,
+    step: f32,
+    inc_per_pixel: f32,
+    val: *f32,
+) void {
+    nk.nk_property_float(
+        &self.context,
+        name,
+        min,
+        @ptrCast(val),
+        max,
+        step,
+        inc_per_pixel,
+    );
+}
+
+pub fn colorPickRgb(self: *Self, color: *[3]f32) bool {
+    return nk.nk_color_pick(&self.context, @ptrCast(color), nk.NK_RGB) == nk.nk_true;
+}
+
+pub fn plot(self: *Self, chart_type: ChartType, values: []const f32, offset: u32) void {
+    nk.nk_plot(
+        &self.context,
+        @intFromEnum(chart_type),
+        @ptrCast(values.ptr),
+        @intCast(values.len),
+        @intCast(offset),
+    );
 }
