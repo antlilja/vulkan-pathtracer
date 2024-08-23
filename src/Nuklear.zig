@@ -340,7 +340,7 @@ pub fn end(self: *Self) void {
     nk.nk_end(&self.context);
 }
 
-pub fn layout_row_static(self: *Self, height: f32, item_width: u32, columns: u32) void {
+pub fn layoutRowStatic(self: *Self, height: f32, item_width: u32, columns: u32) void {
     nk.nk_layout_row_static(
         &self.context,
         height,

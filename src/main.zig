@@ -334,7 +334,7 @@ pub fn main() !void {
             },
             .{},
         )) {
-            nuklear.layout_row_static(30.0, 175, 1);
+            nuklear.layoutRowStatic(30.0, 175, 1);
 
             nuklear.labelFmt(
                 "FPS: {}",
