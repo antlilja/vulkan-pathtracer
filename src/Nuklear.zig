@@ -173,23 +173,41 @@ pub fn update(self: *Self, input: *const Input) void {
         input.cursor_y,
     );
 
-    if (input.isMouseButtonPressed(.left)) {
-        nk.nk_input_button(
-            &self.context,
-            nk.NK_BUTTON_LEFT,
-            @intFromFloat(input.cursor_x),
-            @intFromFloat(input.cursor_y),
-            nk.nk_true,
-        );
-    } else if (input.isMouseButtonReleased(.left)) {
-        nk.nk_input_button(
-            &self.context,
-            nk.NK_BUTTON_LEFT,
-            @intFromFloat(input.cursor_x),
-            @intFromFloat(input.cursor_y),
-            nk.nk_false,
-        );
+    nk.nk_input_button(
+        &self.context,
+        nk.NK_BUTTON_LEFT,
+        input.cursor_x,
+        input.cursor_y,
+        if (input.isMouseButtonPressed(.left)) nk.nk_true else nk.nk_false,
+    );
+
+    for (0..9) |i| {
+        if (input.isKeyJustPressed(@enumFromInt(@intFromEnum(Input.Key.zero) + i))) {
+            const byte: u8 = @intCast(i);
+            nk.nk_input_char(&self.context, byte + '0');
+        }
     }
+
+    for (0..26) |i| {
+        if (input.isKeyJustPressed(@enumFromInt(@intFromEnum(Input.Key.a) + i))) {
+            const byte: u8 = @intCast(i);
+            nk.nk_input_char(&self.context, byte + 'a');
+        }
+    }
+
+    if (input.isKeyJustPressed(Input.Key.period)) nk.nk_input_char(&self.context, '.');
+    if (input.isKeyJustPressed(Input.Key.comma)) nk.nk_input_char(&self.context, ',');
+
+    nk.nk_input_key(
+        &self.context,
+        nk.NK_KEY_BACKSPACE,
+        if (input.isKeyPressed(.backspace)) nk.nk_true else nk.nk_false,
+    );
+    nk.nk_input_key(
+        &self.context,
+        nk.NK_KEY_ENTER,
+        if (input.isKeyPressed(.enter)) nk.nk_true else nk.nk_false,
+    );
 
     nk.nk_input_scroll(&self.context, .{
         .x = 0.0,
