@@ -5,6 +5,7 @@
 #define UINT32_INDICES_MASK 0x80000000
 struct Primitive {
     uint64_t index_address;
+    uint64_t position_address;
     uint64_t normal_address;
     uint64_t tangent_address;
     uint64_t uv_address;
@@ -15,9 +16,13 @@ struct TriangleData {
     vec2 uv;
     vec3 normal;
     vec4 tangent;
+    vec3 geometry_normal;
     uint material_index;
 };
 
+layout(buffer_reference, scalar) readonly buffer Positions {
+    vec3 v[];
+};
 layout(buffer_reference, scalar) readonly buffer Normals {
     vec3 v[];
 };
@@ -88,6 +93,16 @@ TriangleData getTriangleData(Payload payload) {
         const vec4 tangent = t0 * coords.x + t1 * coords.y + t2 * coords.z;
         triangle_data.tangent.xyz = normalize(tangent.xyz * mat3(payload.object_to_world));
         triangle_data.tangent.w = tangent.w;
+    }
+
+    {
+        Positions positions = Positions(primitive.position_address);
+        triangle_data.geometry_normal = normalize(
+                cross(
+                    positions.v[index.y] - positions.v[index.x],
+                    positions.v[index.z] - positions.v[index.x]
+                ) * mat3(payload.object_to_world)
+            );
     }
 
     triangle_data.material_index = primitive.info & MATERIAL_INDEX_MASK;

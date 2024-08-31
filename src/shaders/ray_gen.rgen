@@ -88,7 +88,7 @@ void main() {
                 atten *= material_data.albedo.xyz * 0.5;
 
                 if (j < NUM_BOUNCES - 1) {
-                    origin += direction * payload.t + (triangle_data.normal) * 0.01f;
+                    origin += direction * payload.t + (triangle_data.geometry_normal) * 0.00001f;
 
                     const vec3 diffuse = cosine_weighted_sample(rng_state, normalMatrix(material_data.normal));
                     const vec3 reflection = reflect(direction, material_data.normal);

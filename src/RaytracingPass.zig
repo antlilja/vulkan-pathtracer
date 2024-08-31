@@ -23,6 +23,7 @@ const Primitive = extern struct {
     };
 
     index_address: vk.DeviceAddress,
+    position_address: vk.DeviceAddress,
     normal_address: vk.DeviceAddress,
     tangent_address: vk.DeviceAddress,
     uv_address: vk.DeviceAddress,
@@ -328,6 +329,7 @@ fn createBlases(
 
             primitive.* = .{
                 .index_address = triangle_buffer_address + scene_primitive.indices_offset,
+                .position_address = triangle_buffer_address + scene_primitive.positions_offset,
                 .normal_address = triangle_buffer_address + scene_primitive.normals_offset,
                 .tangent_address = triangle_buffer_address + scene_primitive.tangents_offset,
                 .uv_address = triangle_buffer_address + scene_primitive.uvs_offset,
