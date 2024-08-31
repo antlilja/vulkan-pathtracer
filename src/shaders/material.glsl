@@ -1,20 +1,26 @@
 #ifndef MATERIAL_GLSL
 #define MATERIAL_GLSL
 
-#define MATERIAL_TEXTURE_INDEX_MASK 0x7FFFFFFF
-#define MATERIAL_TEXTURE_EXISTS_MASK 0x80000000
+#include "triangle.glsl"
+
+#define MATERIAL_INVALID_TEXTURE_INDEX 0xFFFFFFFF
 struct Material {
-    uint albedo;
-    uint metal_roughness;
-    uint normal;
-    uint emissive;
+    uint albedo_factor;
+    uint metal_roughness_factor;
+    uint emissive_factor;
+
+    uint albedo_texture_index;
+    uint metal_roughness_texture_index;
+    uint emissive_texture_index;
+    uint normal_texture_index;
 };
 
 struct MaterialData {
-    vec3 albedo;
+    vec4 albedo;
     vec3 normal;
     vec3 emissive;
     float roughness;
+    float metallic;
 };
 
 layout(binding = 3, set = 0) readonly buffer Materials {
@@ -22,36 +28,41 @@ layout(binding = 3, set = 0) readonly buffer Materials {
 } materials;
 layout(binding = 4, set = 0) uniform sampler2D textures[];
 
-MaterialData getMaterialData(uint material_index, vec2 uv) {
+MaterialData getMaterialData(TriangleData triangle_data) {
     MaterialData material_data;
 
-    const Material material = materials.i[material_index];
+    const Material material = materials.i[triangle_data.material_index];
 
-    if ((material.albedo & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
-        material_data.albedo = texture(textures[material.albedo & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
-    } else {
-        material_data.albedo = unpackUnorm4x8(material.albedo).rgb;
+    material_data.albedo = unpackUnorm4x8(material.albedo_factor);
+    if (material.albedo_texture_index != MATERIAL_INVALID_TEXTURE_INDEX) {
+        material_data.albedo *= texture(textures[material.albedo_texture_index], triangle_data.uv);
     }
 
-    if ((material.normal & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
-        material_data.normal = texture(textures[material.normal & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
-    } else {
-        material_data.normal = vec3(0.19607843137, 0.19607843137, 0.39215686274);
+    const vec4 metal_roughness_factor = unpackUnorm4x8(material.metal_roughness_factor);
+    material_data.roughness = metal_roughness_factor.g;
+    material_data.metallic = metal_roughness_factor.b;
+    if (material.metal_roughness_texture_index != MATERIAL_INVALID_TEXTURE_INDEX) {
+        const vec4 metal_roughness = texture(textures[material.metal_roughness_texture_index], triangle_data.uv);
+        material_data.roughness *= metal_roughness.g;
+        material_data.metallic *= metal_roughness.b;
     }
 
-    if ((material.emissive & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
-        material_data.emissive = texture(textures[material.emissive & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
-    } else {
-        material_data.emissive = unpackUnorm4x8(material.emissive).rgb;
+    material_data.emissive = unpackUnorm4x8(material.emissive_factor).rgb;
+    if (material.emissive_texture_index != MATERIAL_INVALID_TEXTURE_INDEX) {
+        material_data.emissive *= texture(textures[material.emissive_texture_index], triangle_data.uv).rgb;
     }
 
-    float roughness;
-    if ((material.metal_roughness & MATERIAL_TEXTURE_EXISTS_MASK) != 0) {
-        const vec3 metal_roughness = texture(textures[material.metal_roughness & MATERIAL_TEXTURE_INDEX_MASK], uv).rgb;
-        material_data.roughness = metal_roughness.g;
-    } else {
-        const vec3 metal_roughness = unpackUnorm4x8(material.metal_roughness).rgb;
-        material_data.roughness = metal_roughness.g;
+    material_data.normal = triangle_data.normal;
+    if (material.normal_texture_index != MATERIAL_INVALID_TEXTURE_INDEX) {
+        const vec3 normal_tangent_space = texture(textures[material.normal_texture_index], triangle_data.uv).rgb;
+
+        const vec3 bitangent = cross(triangle_data.normal, triangle_data.tangent.xyz) * triangle_data.tangent.w;
+        const mat3 tangent_to_world = mat3(
+                triangle_data.tangent.xyz,
+                bitangent,
+                triangle_data.normal
+            );
+        material_data.normal = tangent_to_world * normalize(2.0 * normal_tangent_space - vec3(1.0));
     }
 
     return material_data;

@@ -36,11 +36,15 @@ pub const Primitive = struct {
     },
 };
 
-pub const Material = struct {
-    albedo: u32,
-    metal_roughness: u32,
-    normal: u32,
-    emissive: u32,
+pub const Material = extern struct {
+    albedo_factor: u32,
+    metal_roughness_factor: u32,
+    emissive_factor: u32,
+
+    albedo_texture_index: u32,
+    metal_roughness_texture_index: u32,
+    emissive_texture_index: u32,
+    normal_texture_index: u32,
 };
 
 pub const Texture = struct {
@@ -411,46 +415,30 @@ fn loadMaterials(
     for (gltf_data.materials, materials) |gltf_material, *material| {
         const pbr = gltf_material.pbr_metallic_roughness orelse return error.NonPbrMaterial;
 
-        const albedo: u32 = if (pbr.base_color_texture) |texture|
-            texture.index.get() | (@as(u32, 1) << 31)
-        else
-            @bitCast(Color{
+        material.* = .{
+            .albedo_factor = @bitCast(Color{
                 .r = @intFromFloat(pbr.base_color_factor[0] * 255.0),
                 .g = @intFromFloat(pbr.base_color_factor[1] * 255.0),
                 .b = @intFromFloat(pbr.base_color_factor[2] * 255.0),
                 .a = 0,
-            });
-
-        const metal_roughness: u32 = if (pbr.metallic_roughness_texture) |texture|
-            texture.index.get() | (@as(u32, 1) << 31)
-        else
-            @bitCast(Color{
+            }),
+            .metal_roughness_factor = @bitCast(Color{
                 .r = 0,
                 .g = @intFromFloat(pbr.roughness_factor * 255.0),
                 .b = @intFromFloat(pbr.metallic_factor * 255.0),
                 .a = 0,
-            });
-
-        const normal: u32 = if (gltf_material.normal_texture) |texture|
-            texture.index.get() | (@as(u32, 1) << 31)
-        else
-            0;
-
-        const emissive: u32 = if (gltf_material.emissive_texture) |texture|
-            texture.index.get() | (@as(u32, 1) << 31)
-        else
-            @bitCast(Color{
+            }),
+            .emissive_factor = @bitCast(Color{
                 .r = @intFromFloat(gltf_material.emissive_factor[0] * 255.0),
                 .g = @intFromFloat(gltf_material.emissive_factor[1] * 255.0),
                 .b = @intFromFloat(gltf_material.emissive_factor[2] * 255.0),
                 .a = 0,
-            });
+            }),
 
-        material.* = .{
-            .albedo = albedo,
-            .metal_roughness = metal_roughness,
-            .normal = normal,
-            .emissive = emissive,
+            .albedo_texture_index = if (pbr.base_color_texture) |texture| texture.index.get() else 0xffffffff,
+            .metal_roughness_texture_index = if (pbr.metallic_roughness_texture) |texture| texture.index.get() else 0xffffffff,
+            .emissive_texture_index = if (gltf_material.emissive_texture) |texture| texture.index.get() else 0xffffffff,
+            .normal_texture_index = if (gltf_material.normal_texture) |texture| texture.index.get() else 0xffffffff,
         };
     }
 
