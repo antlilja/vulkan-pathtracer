@@ -413,7 +413,7 @@ fn loadMaterials(
     const materials = try self.arena.allocator().alloc(Material, gltf_data.materials.len);
 
     for (gltf_data.materials, materials) |gltf_material, *material| {
-        const pbr = gltf_material.pbr_metallic_roughness orelse return error.NonPbrMaterial;
+        const pbr = gltf_material.pbr_metallic_roughness;
 
         material.* = .{
             .albedo_factor = @bitCast(Color{

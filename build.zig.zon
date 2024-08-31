@@ -36,8 +36,8 @@
             .hash = "1220592c5f3140eb9cd9bcaefa2a67b5e842c4a876926c4ec2fd9e4c00eeb53c878a",
         },
         .zgltf = .{
-            .url = "https://github.com/antlilja/zgltf/archive/b66cefed116963adb2285ef184437adba1509c01.tar.gz",
-            .hash = "1220b6c4089878cbf84098ab8154293008de8331c76cf0bf6e939cb774ec91447b81",
+            .url = "https://github.com/antlilja/zgltf/archive/d006136d32c49f1e87028f5251aedc6235f5184e.tar.gz",
+            .hash = "1220e6ec5863a5843f8c3de96525dcbf54a39a5d029f4542c45a93e53791fa3d7d82",
         },
     },
 
