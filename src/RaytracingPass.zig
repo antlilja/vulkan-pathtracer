@@ -79,6 +79,7 @@ materials: Buffer,
 
 images: []const Image,
 
+storage_image_extent: vk.Extent2D,
 storage_image: Image,
 pipeline: RayTracingPipeline,
 
@@ -91,6 +92,7 @@ pub fn init(
     scene_path: []const u8,
     num_samples: u32,
     num_bounces: u32,
+    render_resolution_divider: u32,
 ) !Self {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     errdefer arena.deinit();
@@ -143,9 +145,14 @@ pub fn init(
     );
     errdefer materials.deinit(gc);
 
+    const storage_image_extent = vk.Extent2D{
+        .width = extent.width / render_resolution_divider,
+        .height = extent.height / render_resolution_divider,
+    };
+
     var storage_image = try Image.init(
         gc,
-        extent,
+        storage_image_extent,
         format,
         .{
             .transfer_src_bit = true,
@@ -185,6 +192,7 @@ pub fn init(
         .images = images,
         .materials = materials,
 
+        .storage_image_extent = storage_image_extent,
         .storage_image = storage_image,
         .pipeline = pipeline,
     };
@@ -574,8 +582,8 @@ pub fn record(
         &self.pipeline.miss_device_region,
         &self.pipeline.closest_hit_device_region,
         &callable_shader_entry,
-        extent.width,
-        extent.height,
+        self.storage_image_extent.width,
+        self.storage_image_extent.height,
         1,
     );
 
@@ -587,36 +595,75 @@ pub fn record(
         .transfer_src_optimal,
     );
 
-    const image_copy = vk.ImageCopy{
-        .src_offset = .{ .x = 0, .y = 0, .z = 0 },
-        .dst_offset = .{ .x = 0, .y = 0, .z = 0 },
-        .src_subresource = .{
-            .aspect_mask = .{ .color_bit = true },
-            .mip_level = 0,
-            .base_array_layer = 0,
-            .layer_count = 1,
-        },
-        .dst_subresource = .{
-            .aspect_mask = .{ .color_bit = true },
-            .mip_level = 0,
-            .base_array_layer = 0,
-            .layer_count = 1,
-        },
-        .extent = .{
-            .width = extent.width,
-            .height = extent.height,
-            .depth = 1,
-        },
-    };
-    gc.device.cmdCopyImage(
-        cmdbuf,
-        self.storage_image.image,
-        .transfer_src_optimal,
-        dst_image,
-        .transfer_dst_optimal,
-        1,
-        @ptrCast(&image_copy),
-    );
+    if (self.storage_image_extent.width < extent.width) {
+        const image_blit = vk.ImageBlit{
+            .src_subresource = .{
+                .layer_count = 1,
+                .base_array_layer = 0,
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+            },
+            .dst_subresource = .{
+                .layer_count = 1,
+                .base_array_layer = 0,
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+            },
+            .src_offsets = .{
+                .{ .x = 0, .y = 0, .z = 0 },
+                .{
+                    .x = @intCast(self.storage_image_extent.width),
+                    .y = @intCast(self.storage_image_extent.height),
+                    .z = 1,
+                },
+            },
+            .dst_offsets = .{
+                .{ .x = 0, .y = 0, .z = 0 },
+                .{ .x = @intCast(extent.width), .y = @intCast(extent.height), .z = 1 },
+            },
+        };
+        gc.device.cmdBlitImage(
+            cmdbuf,
+            self.storage_image.image,
+            .transfer_src_optimal,
+            dst_image,
+            .transfer_dst_optimal,
+            1,
+            @ptrCast(&image_blit),
+            .nearest,
+        );
+    } else {
+        const image_copy = vk.ImageCopy{
+            .src_offset = .{ .x = 0, .y = 0, .z = 0 },
+            .dst_offset = .{ .x = 0, .y = 0, .z = 0 },
+            .src_subresource = .{
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+            .dst_subresource = .{
+                .aspect_mask = .{ .color_bit = true },
+                .mip_level = 0,
+                .base_array_layer = 0,
+                .layer_count = 1,
+            },
+            .extent = .{
+                .width = extent.width,
+                .height = extent.height,
+                .depth = 1,
+            },
+        };
+        gc.device.cmdCopyImage(
+            cmdbuf,
+            self.storage_image.image,
+            .transfer_src_optimal,
+            dst_image,
+            .transfer_dst_optimal,
+            1,
+            @ptrCast(&image_copy),
+        );
+    }
 
     self.storage_image.setLayout(
         gc,

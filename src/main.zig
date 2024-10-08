@@ -32,13 +32,14 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const params = comptime clap.parseParamsComptime(
-        \\-h, --help                 Display this help and exit.
-        \\-s, --scene-path <str>     Path to GLTF scene that is to be rendered.
-        \\-n, --num-samples <u32>    How many samples per frame will be computed.
-        \\-b, --num-bounces <u32>    How many times can a ray bounce before being terminated.
-        \\-x, --resolution-x <u32>   Horizontal resolution (default is 1920) 
-        \\-y, --resolution-y <u32>   Vertical resolution (default is 1080) 
-        \\-v, --enable-validation    Enable vulkan validation layers
+        \\-h, --help                            Display this help and exit.
+        \\-s, --scene-path <str>                Path to GLTF scene that is to be rendered.
+        \\-n, --num-samples <u32>               How many samples per frame will be computed.
+        \\-b, --num-bounces <u32>               How many times can a ray bounce before being terminated.
+        \\-x, --resolution-x <u32>              Horizontal resolution (default is 1920)
+        \\-y, --resolution-y <u32>              Vertical resolution (default is 1080)
+        \\-d, --render-resolution-divider <u32> Resolution divider (default is 1)
+        \\-v, --enable-validation               Enable vulkan validation layers
         \\
     );
 
@@ -73,6 +74,8 @@ pub fn main() !void {
         .width = res.args.@"resolution-x" orelse 1920,
         .height = res.args.@"resolution-y" orelse 1080,
     };
+
+    const render_resolution_divider = res.args.@"render-resolution-divider" orelse 1;
 
     try zw.init(allocator);
     defer zw.deinit();
@@ -188,6 +191,7 @@ pub fn main() !void {
         scene_path,
         num_samples,
         num_bounces,
+        render_resolution_divider,
     );
     defer raytracing_pass.deinit(&gc);
 
