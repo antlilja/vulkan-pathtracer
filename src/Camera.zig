@@ -16,7 +16,7 @@ pitch: f32,
 yaw: f32,
 
 forward: za.Vec3,
-right: za.Vec3,
+left: za.Vec3,
 up: za.Vec3,
 
 horizontal: za.Vec3,
@@ -33,7 +33,7 @@ pub fn new(fov: f32, aspect_ratio: f32, position: za.Vec3) Self {
         .yaw = 0.0,
 
         .forward = undefined,
-        .right = undefined,
+        .left = undefined,
         .up = undefined,
 
         .horizontal = undefined,
@@ -51,7 +51,7 @@ pub fn update(self: *Self, input: Input, timer: Timer) void {
         if (input.cursor_delta_x != 0.0 or input.cursor_delta_y != 0.0) {
             const cursor_delta_x: f32 = @floatFromInt(input.cursor_delta_x);
             const cursor_delta_y: f32 = @floatFromInt(input.cursor_delta_y);
-            self.yaw += cursor_delta_x * rotate_speed;
+            self.yaw -= cursor_delta_x * rotate_speed;
             self.pitch += cursor_delta_y * rotate_speed;
 
             if (self.yaw < 0.0) self.yaw += 360.0;
@@ -68,8 +68,8 @@ pub fn update(self: *Self, input: Input, timer: Timer) void {
     var dir = za.Vec3.zero();
     if (input.isKeyPressed(.w)) dir = dir.add(self.forward);
     if (input.isKeyPressed(.s)) dir = dir.sub(self.forward);
-    if (input.isKeyPressed(.d)) dir = dir.add(self.right);
-    if (input.isKeyPressed(.a)) dir = dir.sub(self.right);
+    if (input.isKeyPressed(.d)) dir = dir.add(self.left);
+    if (input.isKeyPressed(.a)) dir = dir.sub(self.left);
 
     const velocity = dir.norm().scale(move_speed * timer.delta_time);
     self.position = self.position.add(velocity);
@@ -89,14 +89,14 @@ fn updateOrientation(self: *Self) void {
     );
 
     self.forward = self.rotation.rotateVec(za.Vec3.forward());
-    self.right = self.rotation.rotateVec(za.Vec3.right());
-    self.up = self.forward.cross(self.right);
+    self.left = self.rotation.rotateVec(za.Vec3.left());
+    self.up = self.left.cross(self.forward);
 }
 
 fn updateVectors(self: *Self) void {
     const viewport_height = 2.0 * std.math.tan(self.fov * 0.5);
     const viewport_width = viewport_height * self.aspect_ratio;
 
-    self.horizontal = self.right.scale(viewport_width);
+    self.horizontal = self.left.scale(viewport_width);
     self.vertical = self.up.scale(viewport_height);
 }
