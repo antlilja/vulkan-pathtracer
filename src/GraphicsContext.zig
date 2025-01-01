@@ -68,7 +68,11 @@ pub fn init(
 
     self.allocator = allocator;
 
-    self.vulkan_handle = try std.DynLib.open("libvulkan.so.1");
+    self.vulkan_handle = switch (builtin.target.os.tag) {
+        .linux => try std.DynLib.open("libvulkan.so.1"),
+        .windows => try std.DynLib.open("vulkan-1.dll"),
+        else => @compileError("Unsupported OS: " ++ @tagName(builtin.target.os.tag)),
+    };
     errdefer self.vulkan_handle.close();
 
     const get_instance_proc_addr_fn = self.vulkan_handle.lookup(
