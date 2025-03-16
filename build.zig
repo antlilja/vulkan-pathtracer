@@ -31,6 +31,7 @@ pub fn build(b: *std.Build) !void {
         b,
         target,
         optimize,
+        b.dependency("nuklear", .{}),
         "nuklear",
         "nuklear.h",
         "",
@@ -102,14 +103,14 @@ fn compileCHeaderOnlyLib(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    name: []const u8,
+    dependency: *std.Build.Dependency,
+    lib_name: []const u8,
     header_file_path: []const u8,
     include_dir: []const u8,
     flags: []const []const u8,
 ) *std.Build.Step.Compile {
-    const dep = b.dependency(name, .{});
     const lib = b.addStaticLibrary(.{
-        .name = name,
+        .name = lib_name,
         .optimize = optimize,
         .target = target,
         .link_libc = true,
@@ -119,13 +120,13 @@ fn compileCHeaderOnlyLib(
     _ = std.mem.replace(u8, header_file_path, ".h", ".c", c_file_path);
 
     const wf = b.addWriteFiles();
-    const c_file = wf.addCopyFile(dep.path(header_file_path), c_file_path);
+    const c_file = wf.addCopyFile(dependency.path(header_file_path), c_file_path);
     lib.addCSourceFile(.{
         .file = c_file,
         .flags = flags,
     });
 
-    lib.installHeadersDirectory(dep.path(include_dir), include_dir, .{});
+    lib.installHeadersDirectory(dependency.path(include_dir), include_dir, .{});
 
     return lib;
 }
