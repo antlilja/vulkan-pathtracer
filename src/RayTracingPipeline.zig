@@ -1,7 +1,10 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const za = @import("zalgebra");
-const shaders = @import("shaders");
+
+const ray_gen_shader align(@alignOf(u32)) = @embedFile("ray_gen").*;
+const closest_hit_shader align(@alignOf(u32)) = @embedFile("closest_hit").*;
+const miss_shader align(@alignOf(u32)) = @embedFile("miss").*;
 
 const GraphicsContext = @import("GraphicsContext.zig");
 
@@ -239,20 +242,20 @@ pub fn init(
     errdefer gc.device.destroyPipelineLayout(pipeline_layout, null);
 
     const ray_gen = try gc.device.createShaderModule(&.{
-        .code_size = shaders.ray_gen.len,
-        .p_code = @ptrCast(&shaders.ray_gen),
+        .code_size = ray_gen_shader.len,
+        .p_code = @ptrCast(&ray_gen_shader),
     }, null);
     defer gc.device.destroyShaderModule(ray_gen, null);
 
     const miss = try gc.device.createShaderModule(&.{
-        .code_size = shaders.miss.len,
-        .p_code = @ptrCast(&shaders.miss),
+        .code_size = miss_shader.len,
+        .p_code = @ptrCast(&miss_shader),
     }, null);
     defer gc.device.destroyShaderModule(miss, null);
 
     const closest_hit = try gc.device.createShaderModule(&.{
-        .code_size = shaders.closest_hit.len,
-        .p_code = @ptrCast(&shaders.closest_hit),
+        .code_size = closest_hit_shader.len,
+        .p_code = @ptrCast(&closest_hit_shader),
     }, null);
     defer gc.device.destroyShaderModule(closest_hit, null);
 

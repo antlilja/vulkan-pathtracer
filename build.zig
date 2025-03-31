@@ -1,18 +1,16 @@
 const std = @import("std");
 
-const ShaderCompileStep = @import("vulkan-zig").ShaderCompileStep;
-
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const spec_path = b.dependency("vulkan-headers", .{}).path("registry/vk.xml");
+    const spec_path = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
 
-    const vk_gen = b.dependency("vulkan-zig", .{}).artifact("vulkan-zig-generator");
+    const vk_gen = b.dependency("vulkan_zig", .{}).artifact("vulkan-zig-generator");
     const vk_generate_cmd = b.addRunArtifact(vk_gen);
     vk_generate_cmd.addFileArg(spec_path);
 
-    const zw_dep = b.dependency("zig-window", .{
+    const zw_dep = b.dependency("zig_window", .{
         .target = target,
         .optimize = optimize,
     });
@@ -68,26 +66,48 @@ pub fn build(b: *std.Build) !void {
     exe.linkLibrary(nuklear_lib);
     b.installArtifact(exe);
 
-    const glslang = b.dependency("glslang", .{
+    const shader_compiler = b.dependency("shader_compiler", .{
         .target = std.Build.resolveTargetQuery(b, .{
             .cpu_model = .native,
         }),
         .optimize = .ReleaseSafe,
-    }).artifact("glslang");
+    }).artifact("shader_compiler");
 
-    const shaders = ShaderCompileStep.create(
+    compileShader(
         b,
-        .{ .lazy_path = glslang.getEmittedBin() },
-        &[_][]const u8{ "-V", "--target-env", "vulkan1.2" },
-        "-o",
+        exe.root_module,
+        shader_compiler,
+        b.path("src/shaders/ray_gen.rgen"),
+        "ray_gen",
     );
-    shaders.add("ray_gen", "src/shaders/ray_gen.rgen", .{});
-    shaders.add("miss", "src/shaders/miss.rmiss", .{});
-    shaders.add("closest_hit", "src/shaders/closest_hit.rchit", .{});
-    shaders.add("nuklear_vert", "src/shaders/nuklear.vert", .{});
-    shaders.add("nuklear_frag", "src/shaders/nuklear.frag", .{});
-    exe.root_module.addImport("shaders", shaders.getModule());
-    shaders.step.dependOn(&glslang.step);
+    compileShader(
+        b,
+        exe.root_module,
+        shader_compiler,
+        b.path("src/shaders/miss.rmiss"),
+        "miss",
+    );
+    compileShader(
+        b,
+        exe.root_module,
+        shader_compiler,
+        b.path("src/shaders/closest_hit.rchit"),
+        "closest_hit",
+    );
+    compileShader(
+        b,
+        exe.root_module,
+        shader_compiler,
+        b.path("src/shaders/nuklear.vert"),
+        "nuklear_vert",
+    );
+    compileShader(
+        b,
+        exe.root_module,
+        shader_compiler,
+        b.path("src/shaders/nuklear.frag"),
+        "nuklear_frag",
+    );
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -97,6 +117,30 @@ pub fn build(b: *std.Build) !void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+}
+
+fn compileShader(
+    b: *std.Build,
+    module: *std.Build.Module,
+    compiler_artifact: *std.Build.Step.Compile,
+    src: std.Build.LazyPath,
+    name: []const u8,
+) void {
+    const cmd = b.addRunArtifact(compiler_artifact);
+    cmd.addArgs(&.{ "--target", "Vulkan-1.2", "--optimize-perf", "--scalar-block-layout" });
+    cmd.addArg("--include-path");
+    cmd.addDirectoryArg(b.path("src/shaders"));
+    cmd.addArg("--write-deps");
+    _ = cmd.addDepFileOutputArg("deps.d");
+    cmd.addFileArg(src);
+    const spv = cmd.addOutputFileArg(std.mem.concat(
+        b.allocator,
+        u8,
+        &.{ name, ".spv" },
+    ) catch unreachable);
+    module.addAnonymousImport(name, .{
+        .root_source_file = spv,
+    });
 }
 
 fn compileCHeaderOnlyLib(

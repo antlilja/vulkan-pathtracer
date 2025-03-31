@@ -1,43 +1,45 @@
 .{
-    .name = "vulkan-pathtracer",
+    .name = .vulkan_pathtracer,
     .version = "1.0.0",
 
+    .fingerprint = 0xc3073027fb9e8660,
+
     .dependencies = .{
-        .@"vulkan-zig" = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/c2e755d93424aa6e0220862b6d1d316da99f5363.tar.gz",
-            .hash = "1220857a2c465806cf58d3e705c98bff2faa8083c15d842f7e85938cff4b2a803cce",
+        .vulkan_zig = .{
+            .url = "https://github.com/Snektron/vulkan-zig/archive/57d587c8a4b6ff5493613b1cf0c64ce34461696e.tar.gz",
+            .hash = "vulkan-0.0.0-r7Ytx5GAAwBIBpjW4Ipd81FiM24t7UxlVomrGkubzW3v",
         },
-        .@"vulkan-headers" = .{
+        .vulkan_headers = .{
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.285.tar.gz",
             .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
         },
-        .@"zig-window" = .{
-            .url = "https://github.com/antlilja/zig-window/archive/638ebfef2aa556d0e2107135de22b28bdb14b3cc.tar.gz",
-            .hash = "1220c0dce7579ad57fa071ce24fb8747edec15d91a7f7635982a02d364284e98e056",
+        .zig_window = .{
+            .url = "https://github.com/antlilja/zig-window/archive/82b31564e45ac4c9502bcd637600afb9c502b1cd.tar.gz",
+            .hash = "N-V-__8AAIPgAACPJPO-VXTXs8bVvkCva_SWIBVeC2EZxIi6",
         },
-        .glslang = .{
-            .url = "https://github.com/antlilja/zig-glslang/archive/f2ec40cefb3352370a3611bc0ffdf34d2f8bc554.tar.gz",
-            .hash = "1220473db4351c22eadc4bd9bc10b25a56e8c0fcd3790ece8fcdf77f7973b6d8e093",
+        .shader_compiler = .{
+            .url = "https://github.com/Games-by-Mason/shader_compiler/archive/712049c2a96d3be1c221294a3eee908752305bdc.tar.gz",
+            .hash = "shader_compiler-0.0.0-bOVsasuGAAAuHhM_r1Tyglu5vGZSdFPPQ7MWKMywJMFL",
         },
         .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/60cd46aacff4960104703da9ba683077b1e3c76c.tar.gz",
-            .hash = "12205eb22c644df2469045083efe9c92189d56494ebe8901b36ef1218c3717e6eb78",
+            .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz",
+            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
         },
         .zalgebra = .{
-            .url = "https://github.com/kooparse/zalgebra/archive/e36116987d11c4a28ab8a03ab62d71be8b81404a.tar.gz",
-            .hash = "12200e1b17e15217623e36563e459164fff4debb8210ea9d027d8548aca6d30f0811",
+            .url = "https://github.com/kooparse/zalgebra/archive/a50b70b83ff231fe1271512643cdd103d7c1a39b.tar.gz",
+            .hash = "zalgebra-0.0.0-aaiVSotlAQADiKT--QlBP8WWT3XIZUNx-o2tcyRGOPUc",
         },
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d.tar.gz",
-            .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
+            .url = "https://github.com/zigimg/zigimg/archive/7e098bf6be568cb8bd659397c2d5c291893095bc.tar.gz",
+            .hash = "zigimg-0.1.0-lly-O8QREQDj96arPVPqvkcjKQpmVijvw_6U6FuqhURQ",
         },
         .nuklear = .{
             .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/34ea8bb042e5b6145395e2955bea82c61d8363e1.tar.gz",
             .hash = "1220592c5f3140eb9cd9bcaefa2a67b5e842c4a876926c4ec2fd9e4c00eeb53c878a",
         },
         .zgltf = .{
-            .url = "https://github.com/antlilja/zgltf/archive/d006136d32c49f1e87028f5251aedc6235f5184e.tar.gz",
-            .hash = "1220e6ec5863a5843f8c3de96525dcbf54a39a5d029f4542c45a93e53791fa3d7d82",
+            .url = "https://github.com/antlilja/zgltf/archive/aac237818590090ddf563b6ab522ade3b6a8b131.tar.gz",
+            .hash = "zgltf-1.0.0-yXfkVeWAAACAPLb7IbMIJdYgEQzc_3Jy--yd5IvP59qr",
         },
     },
 

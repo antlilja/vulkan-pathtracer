@@ -7,7 +7,7 @@ zig build run -Doptimize=ReleaseSafe -- --scene-path PATH_TO_SCENE
 ```
 
 ### Dependencies
-* zig version `0.13.0` [Linux](https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz) [Windows](https://ziglang.org/download/0.13.0/zig-windows-x86_64-0.13.0.zip)
+* zig version `0.14.0` [Linux](https://ziglang.org/download/0.14.0/zig-linux-x86_64-0.14.0.tar.xz) [Windows](https://ziglang.org/download/0.14.0/zig-windows-x86_64-0.14.0.zip)
 
 ## glTF scene compatability
 glTF scenes require vetex UVs, normals and tangets along with materials for all meshes.

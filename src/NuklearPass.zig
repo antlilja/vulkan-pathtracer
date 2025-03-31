@@ -5,6 +5,9 @@ const nk = Nuklear.nk;
 
 const shaders = @import("shaders");
 
+const vert_shader align(@alignOf(u32)) = @embedFile("nuklear_vert").*;
+const frag_shader align(@alignOf(u32)) = @embedFile("nuklear_frag").*;
+
 const GraphicsContext = @import("GraphicsContext.zig");
 const Buffer = @import("Buffer.zig");
 const Image = @import("Image.zig");
@@ -245,14 +248,14 @@ pub fn init(
         errdefer gc.device.destroyPipelineLayout(pipeline_layout, null);
 
         const vert = try gc.device.createShaderModule(&.{
-            .code_size = shaders.nuklear_vert.len,
-            .p_code = @ptrCast(&shaders.nuklear_vert),
+            .code_size = vert_shader.len,
+            .p_code = @ptrCast(&vert_shader),
         }, null);
         defer gc.device.destroyShaderModule(vert, null);
 
         const frag = try gc.device.createShaderModule(&.{
-            .code_size = shaders.nuklear_frag.len,
-            .p_code = @ptrCast(&shaders.nuklear_frag),
+            .code_size = frag_shader.len,
+            .p_code = @ptrCast(&frag_shader),
         }, null);
         defer gc.device.destroyShaderModule(frag, null);
 

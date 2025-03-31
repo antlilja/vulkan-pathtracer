@@ -53,7 +53,7 @@ pub fn init(
     allocator: std.mem.Allocator,
     name: []const u8,
     window: zw.Window,
-    api_version: u32,
+    api_version: vk.Version,
     required_instance_extensions: []const [*:0]const u8,
     required_device_extensions: []const [*:0]const u8,
     features_ptr: ?*const anyopaque,
@@ -86,10 +86,10 @@ pub fn init(
 
     const app_info = vk.ApplicationInfo{
         .p_application_name = app_name_z,
-        .application_version = vk.makeApiVersion(0, 1, 0, 0),
+        .application_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
         .p_engine_name = app_name_z,
-        .engine_version = vk.makeApiVersion(0, 1, 0, 0),
-        .api_version = api_version,
+        .engine_version = @bitCast(vk.makeApiVersion(0, 1, 0, 0)),
+        .api_version = @bitCast(api_version),
     };
 
     const validation_layers = [_][*:0]const u8{"VK_LAYER_KHRONOS_validation"};
