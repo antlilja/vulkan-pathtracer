@@ -1,12 +1,6 @@
 const std = @import("std");
 
-pub const nk = @cImport({
-    @cDefine("NK_INCLUDE_FIXED_TYPES", {});
-    @cDefine("NK_INCLUDE_VERTEX_BUFFER_OUTPUT", {});
-    @cDefine("NK_INCLUDE_DEFAULT_FONT", {});
-    @cDefine("NK_INCLUDE_FONT_BAKING", {});
-    @cInclude("nuklear.h");
-});
+pub const nk = @import("nuklear");
 
 const Input = @import("Input.zig");
 

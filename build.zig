@@ -25,20 +25,21 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
-    const nuklear_lib = compileCHeaderOnlyLib(
+    const nuklear_mod = compileCHeaderOnlyLib(
         b,
         target,
         optimize,
         b.dependency("nuklear", .{}),
         "nuklear",
         "nuklear.h",
-        "",
+        &.{
+            "NK_INCLUDE_FIXED_TYPES",
+            "NK_INCLUDE_DEFAULT_FONT",
+            "NK_INCLUDE_FONT_BAKING",
+            "NK_INCLUDE_VERTEX_BUFFER_OUTPUT",
+        },
         &.{
             "-DNK_IMPLEMENTATION",
-            "-DNK_INCLUDE_FIXED_TYPES",
-            "-DNK_INCLUDE_DEFAULT_FONT",
-            "-DNK_INCLUDE_FONT_BAKING",
-            "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT",
         },
     );
 
@@ -63,7 +64,7 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     }).module("zalgebra"));
-    exe.linkLibrary(nuklear_lib);
+    exe.root_module.addImport("nuklear", nuklear_mod);
     b.installArtifact(exe);
 
     const shader_compiler = b.dependency("shader_compiler", .{
@@ -150,27 +151,49 @@ fn compileCHeaderOnlyLib(
     dependency: *std.Build.Dependency,
     lib_name: []const u8,
     header_file_path: []const u8,
-    include_dir: []const u8,
-    flags: []const []const u8,
-) *std.Build.Step.Compile {
-    const lib = b.addStaticLibrary(.{
-        .name = lib_name,
-        .optimize = optimize,
+    common_defines: []const []const u8,
+    impl_flags: []const []const u8,
+) *std.Build.Module {
+    const header_path = dependency.path(header_file_path);
+
+    const translate_c = b.addTranslateC(.{
+        .root_source_file = header_path,
         .target = target,
+        .optimize = optimize,
         .link_libc = true,
     });
+    for (common_defines) |define| {
+        translate_c.defineCMacro(define, null);
+    }
 
     const c_file_path = b.allocator.alloc(u8, header_file_path.len) catch unreachable;
     _ = std.mem.replace(u8, header_file_path, ".h", ".c", c_file_path);
 
     const wf = b.addWriteFiles();
     const c_file = wf.addCopyFile(dependency.path(header_file_path), c_file_path);
+
+    const flags = b.allocator.alloc([]const u8, common_defines.len + impl_flags.len) catch unreachable;
+    for (common_defines, flags[0..common_defines.len]) |define, *flag| {
+        flag.* = std.mem.concat(b.allocator, u8, &.{ "-D", define }) catch unreachable;
+    }
+
+    for (impl_flags, flags[common_defines.len..]) |impl_flag, *flag| {
+        flag.* = impl_flag;
+    }
+
+    const lib = b.addStaticLibrary(.{
+        .name = lib_name,
+        .optimize = optimize,
+        .target = target,
+        .link_libc = true,
+    });
     lib.addCSourceFile(.{
         .file = c_file,
         .flags = flags,
     });
 
-    lib.installHeadersDirectory(dependency.path(include_dir), include_dir, .{});
+    const mod = translate_c.createModule();
+    mod.linkLibrary(lib);
 
-    return lib;
+    return mod;
 }
