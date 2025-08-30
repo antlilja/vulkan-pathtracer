@@ -57,11 +57,11 @@ pub fn init(
         .address_mode_u = .repeat,
         .address_mode_v = .repeat,
         .address_mode_w = .repeat,
-        .anisotropy_enable = vk.FALSE,
+        .anisotropy_enable = .false,
         .max_anisotropy = 0.0,
         .border_color = .int_opaque_black,
-        .unnormalized_coordinates = vk.FALSE,
-        .compare_enable = vk.FALSE,
+        .unnormalized_coordinates = .false,
+        .compare_enable = .false,
         .compare_op = .always,
         .mipmap_mode = .linear,
         .mip_lod_bias = 0.0,
@@ -74,7 +74,7 @@ pub fn init(
         .{ .type = .acceleration_structure_khr, .descriptor_count = 1 },
         .{ .type = .storage_image, .descriptor_count = 1 },
         .{ .type = .storage_buffer, .descriptor_count = 2 },
-        .{ .type = .combined_image_sampler, .descriptor_count = 1 },
+        .{ .type = .combined_image_sampler, .descriptor_count = @intCast(images.len) },
     };
 
     const descriptor_pool = try gc.device.createDescriptorPool(&.{

@@ -65,7 +65,7 @@ pub fn init(allocator: std.mem.Allocator) !Self {
             last_memory: usize,
             last_memory_size: usize,
 
-            fn alloc(user_data: nk.nk_handle, ptr: ?*anyopaque, size: nk.nk_size) callconv(.C) ?*anyopaque {
+            fn alloc(user_data: nk.nk_handle, ptr: ?*anyopaque, size: nk.nk_size) callconv(.c) ?*anyopaque {
                 _ = ptr;
                 var allocator_info: *@This() = @alignCast(@ptrCast(user_data.ptr.?));
 
@@ -83,7 +83,7 @@ pub fn init(allocator: std.mem.Allocator) !Self {
                 return @ptrCast(memory);
             }
 
-            fn free(user_data: nk.nk_handle, ptr: ?*anyopaque) callconv(.C) void {
+            fn free(user_data: nk.nk_handle, ptr: ?*anyopaque) callconv(.c) void {
                 var allocator_info: *@This() = @alignCast(@ptrCast(user_data.ptr.?));
                 allocator_info = allocator_info;
 

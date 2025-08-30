@@ -2,44 +2,45 @@
     .name = .vulkan_pathtracer,
     .version = "1.0.0",
 
+    .minimum_zig_version = "0.15.1",
     .fingerprint = 0xc3073027fb9e8660,
 
     .dependencies = .{
-        .vulkan_zig = .{
-            .url = "https://github.com/Snektron/vulkan-zig/archive/57d587c8a4b6ff5493613b1cf0c64ce34461696e.tar.gz",
-            .hash = "vulkan-0.0.0-r7Ytx5GAAwBIBpjW4Ipd81FiM24t7UxlVomrGkubzW3v",
-        },
         .vulkan_headers = .{
             .url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/v1.3.285.tar.gz",
             .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
         },
         .zig_window = .{
-            .url = "https://github.com/antlilja/zig-window/archive/82b31564e45ac4c9502bcd637600afb9c502b1cd.tar.gz",
-            .hash = "N-V-__8AAIPgAACPJPO-VXTXs8bVvkCva_SWIBVeC2EZxIi6",
+            .url = "git+https://github.com/antlilja/zig-window.git#a9d7563e39671abfa686e78846cf67992dda9485",
+            .hash = "zig_window-0.0.0-Iy-jHpLcAABSgOfJr7hYQx0IsKEXNsa-JuWqw_lMZIuR",
         },
-        .shader_compiler = .{
-            .url = "https://github.com/Games-by-Mason/shader_compiler/archive/712049c2a96d3be1c221294a3eee908752305bdc.tar.gz",
-            .hash = "shader_compiler-0.0.0-bOVsasuGAAAuHhM_r1Tyglu5vGZSdFPPQ7MWKMywJMFL",
-        },
-        .clap = .{
-            .url = "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz",
-            .hash = "clap-0.10.0-oBajB434AQBDh-Ei3YtoKIRxZacVPF1iSwp3IX_ZB8f0",
+        .stb = .{
+            .url = "https://github.com/nothings/stb/archive/f58f558c120e9b32c217290b80bad1a0729fbb2c.tar.gz",
+            .hash = "N-V-__8AAO8tTgBJoAbyWoWhdnNsGrx_ql6PT0ZLfoz2ms6b",
         },
         .zalgebra = .{
-            .url = "https://github.com/kooparse/zalgebra/archive/a50b70b83ff231fe1271512643cdd103d7c1a39b.tar.gz",
-            .hash = "zalgebra-0.0.0-aaiVSotlAQADiKT--QlBP8WWT3XIZUNx-o2tcyRGOPUc",
-        },
-        .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/7e098bf6be568cb8bd659397c2d5c291893095bc.tar.gz",
-            .hash = "zigimg-0.1.0-lly-O8QREQDj96arPVPqvkcjKQpmVijvw_6U6FuqhURQ",
+            .url = "git+https://github.com/kooparse/zalgebra.git#4a85a7102f0b82f445395049f0c660c70264d170",
+            .hash = "zalgebra-0.0.0-aaiVSpBuAQD7rPuHRn9qd3wREcRVSnN95Ves7atzsiQY",
         },
         .nuklear = .{
             .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/34ea8bb042e5b6145395e2955bea82c61d8363e1.tar.gz",
             .hash = "1220592c5f3140eb9cd9bcaefa2a67b5e842c4a876926c4ec2fd9e4c00eeb53c878a",
         },
         .zgltf = .{
-            .url = "https://github.com/antlilja/zgltf/archive/aac237818590090ddf563b6ab522ade3b6a8b131.tar.gz",
-            .hash = "zgltf-1.0.0-yXfkVeWAAACAPLb7IbMIJdYgEQzc_3Jy--yd5IvP59qr",
+            .url = "git+https://github.com/antlilja/zgltf.git#5115ea51a481d317ec2d7a62b14a6518e1231279",
+            .hash = "zgltf-1.0.0-yXfkVRJ_AABr1QHXRIWn4sSD_zSyhHO28gA1haeucVTD",
+        },
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig.git#f879074293f0e2f718c93fd19cc0a96260a3aa52",
+            .hash = "vulkan-0.0.0-r7Ytx6hBAwBUnt0XA-uOkR2hda4fAHFhQITNTgJpnFkY",
+        },
+        .shader_compiler = .{
+            .url = "git+https://github.com/Games-by-Mason/shader_compiler.git#c24b915eb66369b8bd3115a96508ca5c9a445497",
+            .hash = "shader_compiler-1.0.0-bOVsamu9AABT50Nb8bzMJ35nNkcW7u9DTEjtx9Zvfamr",
+        },
+        .structopt = .{
+            .url = "git+https://github.com/Games-by-Mason/structopt.git#ca000425f5e1828221ca858dd97a3b407e48be9e",
+            .hash = "structopt-1.0.0-OgtKAiE4AQCpaGqYCWS5aKYlzoeZLQxTAQH8EQJvyS7P",
         },
     },
 

@@ -29,8 +29,8 @@ pub fn init(
         if (field.type == vk.PhysicalDeviceFeatures) {
             inline for (std.meta.fields(vk.PhysicalDeviceFeatures)) |feature_field| {
                 @field(features2.features, feature_field.name) =
-                    @field(@field(extra_features, field.name), feature_field.name) |
-                    @field(features2.features, feature_field.name);
+                    if (@field(@field(extra_features, field.name), feature_field.name) == .true or
+                    @field(features2.features, feature_field.name) == .true) .true else .false;
             }
         } else if (field.type == vk.PhysicalDeviceFeatures2) {
             @compileError("Not allowed to pass vk.PhysicalDeviceFeatures2");
@@ -43,8 +43,8 @@ pub fn init(
                     inline for (feature_fields) |feature_field| {
                         if (feature_field.type == vk.Bool32) {
                             @field(features_ptr.*, feature_field.name) =
-                                @field(features_ptr.*, feature_field.name) |
-                                @field(@field(extra_features, other_field.name), feature_field.name);
+                                if (@field(features_ptr.*, feature_field.name) == .true or
+                                @field(@field(extra_features, other_field.name), feature_field.name) == .true) .true else .false;
                         }
                     }
 
@@ -52,7 +52,7 @@ pub fn init(
                 }
             }
 
-            const generic_ptr: *GenericFeatures = @alignCast(@ptrCast(features_ptr));
+            const generic_ptr: *GenericFeatures = @ptrCast(@alignCast(features_ptr));
             generic_ptr.p_next = base;
             base = generic_ptr;
         }

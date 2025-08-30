@@ -58,7 +58,7 @@ pub const SwapImage = struct {
     }
 
     pub fn waitForFence(self: SwapImage, context: *const GraphicsContext) !void {
-        _ = try context.device.waitForFences(1, @ptrCast(&self.frame_fence), vk.TRUE, std.math.maxInt(u64));
+        _ = try context.device.waitForFences(1, @ptrCast(&self.frame_fence), .true, std.math.maxInt(u64));
     }
 };
 
@@ -193,7 +193,7 @@ pub fn initRecycle(
         .pre_transform = caps.current_transform,
         .composite_alpha = .{ .opaque_bit_khr = true },
         .present_mode = present_mode,
-        .clipped = vk.TRUE,
+        .clipped = .true,
         .old_swapchain = old_handle,
     }, null);
     errdefer context.device.destroySwapchainKHR(handle, null);

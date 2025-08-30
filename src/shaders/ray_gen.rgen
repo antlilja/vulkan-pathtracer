@@ -17,7 +17,7 @@ layout(constant_id = 0) const uint NUM_SAMPLES = 1;
 layout(constant_id = 1) const uint NUM_BOUNCES = 2;
 
 layout(binding = 0, set = 0) uniform accelerationStructureEXT topLevelAS;
-layout(binding = 1, set = 0, rgba32f) uniform image2D image;
+layout(binding = 1, set = 0) writeonly uniform image2D image;
 
 layout(push_constant) uniform PushConstants {
     vec4 position;

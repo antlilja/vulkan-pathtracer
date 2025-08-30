@@ -131,11 +131,11 @@ pub fn init(
         .address_mode_u = .repeat,
         .address_mode_v = .repeat,
         .address_mode_w = .repeat,
-        .anisotropy_enable = vk.FALSE,
+        .anisotropy_enable = .false,
         .max_anisotropy = 0.0,
         .border_color = .int_opaque_black,
-        .unnormalized_coordinates = vk.FALSE,
-        .compare_enable = vk.FALSE,
+        .unnormalized_coordinates = .false,
+        .compare_enable = .false,
         .compare_op = .always,
         .mipmap_mode = .linear,
         .mip_lod_bias = 0.0,
@@ -281,7 +281,7 @@ pub fn init(
 
         const piasci = vk.PipelineInputAssemblyStateCreateInfo{
             .topology = .triangle_list,
-            .primitive_restart_enable = vk.FALSE,
+            .primitive_restart_enable = .false,
         };
 
         const pvsci = vk.PipelineViewportStateCreateInfo{
@@ -292,12 +292,12 @@ pub fn init(
         };
 
         const prsci = vk.PipelineRasterizationStateCreateInfo{
-            .depth_clamp_enable = vk.FALSE,
-            .rasterizer_discard_enable = vk.FALSE,
+            .depth_clamp_enable = .false,
+            .rasterizer_discard_enable = .false,
             .polygon_mode = .fill,
             .cull_mode = .{ .back_bit = true },
             .front_face = .clockwise,
-            .depth_bias_enable = vk.FALSE,
+            .depth_bias_enable = .false,
             .depth_bias_constant_factor = 0,
             .depth_bias_clamp = 0,
             .depth_bias_slope_factor = 0,
@@ -306,14 +306,14 @@ pub fn init(
 
         const pmsci = vk.PipelineMultisampleStateCreateInfo{
             .rasterization_samples = .{ .@"1_bit" = true },
-            .sample_shading_enable = vk.FALSE,
+            .sample_shading_enable = .false,
             .min_sample_shading = 1,
-            .alpha_to_coverage_enable = vk.FALSE,
-            .alpha_to_one_enable = vk.FALSE,
+            .alpha_to_coverage_enable = .false,
+            .alpha_to_one_enable = .false,
         };
 
         const pcbas = vk.PipelineColorBlendAttachmentState{
-            .blend_enable = vk.TRUE,
+            .blend_enable = .true,
             .src_color_blend_factor = .src_alpha,
             .dst_color_blend_factor = .one_minus_src_alpha,
             .color_blend_op = .add,
@@ -329,7 +329,7 @@ pub fn init(
         };
 
         const pcbsci = vk.PipelineColorBlendStateCreateInfo{
-            .logic_op_enable = vk.FALSE,
+            .logic_op_enable = .false,
             .logic_op = .copy,
             .attachment_count = 1,
             .p_attachments = @ptrCast(&pcbas),

@@ -70,7 +70,7 @@ pub fn init(
         .flags = .{ .opaque_bit_khr = true },
         .geometry = .{
             .instances = .{
-                .array_of_pointers = vk.FALSE,
+                .array_of_pointers = .false,
                 .data = .{ .device_address = instance_device_address },
             },
         },

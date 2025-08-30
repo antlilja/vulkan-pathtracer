@@ -50,20 +50,21 @@ pub const extensions = [_][*:0]const u8{
 
 pub const features = .{
     vk.PhysicalDeviceFeatures{
-        .shader_int_16 = vk.TRUE,
-        .shader_int_64 = vk.TRUE,
+        .shader_int_16 = .true,
+        .shader_int_64 = .true,
+        .shader_storage_image_write_without_format = .true,
     },
     vk.PhysicalDeviceVulkan11Features{
-        .storage_buffer_16_bit_access = vk.TRUE,
+        .storage_buffer_16_bit_access = .true,
     },
     vk.PhysicalDeviceVulkan12Features{
-        .buffer_device_address = vk.TRUE,
-        .runtime_descriptor_array = vk.TRUE,
-        .descriptor_indexing = vk.TRUE,
-        .scalar_block_layout = vk.TRUE,
+        .buffer_device_address = .true,
+        .runtime_descriptor_array = .true,
+        .descriptor_indexing = .true,
+        .scalar_block_layout = .true,
     },
-    vk.PhysicalDeviceAccelerationStructureFeaturesKHR{ .acceleration_structure = vk.TRUE },
-    vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{ .ray_tracing_pipeline = vk.TRUE },
+    vk.PhysicalDeviceAccelerationStructureFeaturesKHR{ .acceleration_structure = .true },
+    vk.PhysicalDeviceRayTracingPipelineFeaturesKHR{ .ray_tracing_pipeline = .true },
 };
 
 arena: std.heap.ArenaAllocator,

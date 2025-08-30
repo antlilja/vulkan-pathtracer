@@ -7,7 +7,7 @@ const Gltf = zgltf.Gltf(.{
     .include = .{ .cameras = false },
 });
 
-const zi = @import("zigimg");
+const stb_image = @import("stb_image.zig");
 
 const Self = @This();
 
@@ -80,6 +80,9 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
     var gltf_file = try std.fs.cwd().openFile(path, .{});
     defer gltf_file.close();
 
+    var reader_buf: [4096]u8 = undefined;
+    var gltf_reader = gltf_file.reader(&reader_buf);
+
     var gltf_arena = std.heap.ArenaAllocator.init(allocator);
     defer gltf_arena.deinit();
 
@@ -88,7 +91,7 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
         if (std.mem.eql(u8, file_extension, ".glb")) {
             const result = try zgltf.parseGlb(
                 Gltf,
-                gltf_file.reader(),
+                &gltf_reader.interface,
                 gltf_arena.allocator(),
                 allocator,
             );
@@ -105,7 +108,7 @@ pub fn load(path: []const u8, allocator: std.mem.Allocator) !Self {
         } else if (std.mem.eql(u8, file_extension, ".gltf")) {
             const result = try zgltf.parseGltf(
                 Gltf,
-                gltf_file.reader(),
+                &gltf_reader.interface,
                 gltf_arena.allocator(),
                 allocator,
             );
@@ -360,46 +363,41 @@ fn loadTextures(
         return;
     }
 
+    var tmp_arena = std.heap.ArenaAllocator.init(allocator);
+    defer tmp_arena.deinit();
+
     const arena_allocator = self.arena.allocator();
 
     const textures = try arena_allocator.alloc(Texture, gltf_data.textures.len);
 
     for (gltf_data.textures, textures) |gltf_texture, *texture| {
         const image = gltf_data.images[gltf_texture.source.get()];
-        var image_data = if (image.uri.len != 0) blk: {
+        const image_data = if (image.uri.len != 0) blk: {
             var file = try dir.openFile(image.uri, .{});
             defer file.close();
 
-            break :blk try zi.Image.fromFile(allocator, &file);
+            const image_data = try file.readToEndAlloc(tmp_arena.allocator(), std.math.maxInt(usize));
+            break :blk try stb_image.load_from_memory_rgba(image_data);
         } else blk: {
             const buffer_view = gltf_data.buffer_views[image.buffer_view.get()];
             const buffer = gltf_buffers[buffer_view.buffer.get()];
 
-            const image_data = try allocator.alloc(u8, buffer_view.byte_length);
-            defer allocator.free(image_data);
+            const image_data = try tmp_arena.allocator().alloc(u8, buffer_view.byte_length);
 
             try buffer.file.seekTo(buffer.offset + buffer_view.byte_offset);
             const read_size = try buffer.file.read(image_data);
             if (read_size != buffer_view.byte_length) return error.EndOfLength;
 
-            break :blk try zi.Image.fromMemory(allocator, image_data);
+            break :blk try stb_image.load_from_memory_rgba(image_data);
         };
-        defer image_data.deinit();
+        defer std.c.free(@ptrCast(@constCast(image_data.image.ptr)));
+
+        const data = try arena_allocator.dupe(u8, image_data.image);
 
         texture.* = .{
-            .data = switch (image_data.pixelFormat()) {
-                .rgba32 => try arena_allocator.dupe(u8, image_data.pixels.asConstBytes()),
-                else => blk: {
-                    const pixels = try zi.PixelFormatConverter.convert(
-                        arena_allocator,
-                        &image_data.pixels,
-                        .rgba32,
-                    );
-                    break :blk pixels.asConstBytes();
-                },
-            },
-            .width = @intCast(image_data.width),
-            .height = @intCast(image_data.height),
+            .data = data,
+            .width = image_data.width,
+            .height = image_data.height,
         };
     }
 
@@ -448,57 +446,60 @@ fn loadMaterials(
 fn loadScene(
     self: *Self,
     gltf_data: Gltf,
-    allocator: std.mem.Allocator,
+    gpa: std.mem.Allocator,
 ) !void {
-    var instances = std.ArrayList(Instance).init(allocator);
-    defer instances.deinit();
+    var instances: std.ArrayList(Instance) = .{};
+    defer instances.deinit(gpa);
 
     if (gltf_data.scenes.len == 0) return error.NoScene;
     if (gltf_data.scenes.len > 1) return error.TooManyScenes;
 
-    for (gltf_data.scenes[0].nodes) |node| {
-        try loadSceneImpl(
-            gltf_data.nodes[node],
-            za.Mat4.identity(),
-            gltf_data,
-            &instances,
-        );
+    var stack_fallback = std.heap.stackFallback(1024, gpa);
+    const allocator = stack_fallback.get();
+
+    var stack: std.ArrayList(struct {
+        index: u32,
+        matrix: za.Mat4,
+    }) = try .initCapacity(allocator, 1);
+    defer stack.deinit(allocator);
+
+    for (gltf_data.scenes[0].nodes) |node_index| {
+        stack.appendAssumeCapacity(.{
+            .index = node_index,
+            .matrix = za.Mat4.identity(),
+        });
+        while (stack.pop()) |n| {
+            const node = gltf_data.nodes[n.index];
+            // var matrix = n.matrix;
+            const matrix = if (node.mesh.getOrNull()) |mesh_index| blk: {
+                var matrix = n.matrix.translate(za.Vec3.fromSlice(&node.translation));
+
+                matrix = matrix.mul(za.Quat.new(
+                    node.rotation[3],
+                    node.rotation[0],
+                    node.rotation[1],
+                    node.rotation[2],
+                ).toMat4());
+
+                matrix = matrix.scale(za.Vec3.fromSlice(&node.scale));
+
+                try instances.append(gpa, .{
+                    .mesh_index = mesh_index,
+                    .transform = matrix.transpose(),
+                });
+                break :blk matrix;
+            } else n.matrix;
+
+            try stack.ensureUnusedCapacity(allocator, node.children.len);
+
+            for (node.children) |child_index| {
+                stack.appendAssumeCapacity(.{
+                    .index = child_index,
+                    .matrix = matrix,
+                });
+            }
+        }
     }
 
     self.instances = try self.arena.allocator().dupe(Instance, instances.items);
-}
-
-fn loadSceneImpl(
-    node: Gltf.Node,
-    parent_matrix: za.Mat4,
-    gltf_data: Gltf,
-    instances: *std.ArrayList(Instance),
-) !void {
-    var matrix = parent_matrix;
-    if (node.mesh.getOrNull()) |mesh_index| {
-        matrix = matrix.translate(za.Vec3.fromSlice(&node.translation));
-
-        matrix = matrix.mul(za.Quat.new(
-            node.rotation[3],
-            node.rotation[0],
-            node.rotation[1],
-            node.rotation[2],
-        ).toMat4());
-
-        matrix = matrix.scale(za.Vec3.fromSlice(&node.scale));
-
-        try instances.append(.{
-            .mesh_index = mesh_index,
-            .transform = matrix.transpose(),
-        });
-    }
-
-    for (node.children) |child_index| {
-        try loadSceneImpl(
-            gltf_data.nodes[child_index],
-            matrix,
-            gltf_data,
-            instances,
-        );
-    }
 }

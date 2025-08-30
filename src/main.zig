@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const vk = @import("vulkan");
 const za = @import("zalgebra");
-const clap = @import("clap");
+const structopt = @import("structopt");
 
 const zw = @import("zig-window");
 
@@ -26,56 +26,67 @@ const app_name = "Engine";
 
 pub const vk_extra_apis = NuklearPass.apis ++ RaytracingPass.apis;
 
+const command: structopt.Command = .{
+    .name = "vulkan-pathtracer",
+    .named_args = &.{
+        structopt.NamedArg.init(u32, .{
+            .long = "num-samples",
+            .short = 'c',
+            .default = .{ .value = 1 },
+        }),
+        structopt.NamedArg.init(u32, .{
+            .long = "num-bounces",
+            .short = 'b',
+            .default = .{ .value = 2 },
+        }),
+        structopt.NamedArg.init(u32, .{
+            .long = "resolution-x",
+            .short = 'x',
+            .default = .{ .value = 1920 },
+        }),
+        structopt.NamedArg.init(u32, .{
+            .long = "resolution-y",
+            .short = 'y',
+            .default = .{ .value = 1080 },
+        }),
+        structopt.NamedArg.init(u32, .{
+            .long = "render-resolution-divider",
+            .short = 'd',
+            .default = .{ .value = 1 },
+        }),
+        structopt.NamedArg.init(bool, .{
+            .long = "enable-validation",
+            .short = 'v',
+            .default = .{ .value = false },
+        }),
+        structopt.NamedArg.init([]const u8, .{
+            .long = "scene-path",
+            .short = 's',
+        }),
+    },
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help                            Display this help and exit.
-        \\-s, --scene-path <str>                Path to GLTF scene that is to be rendered.
-        \\-n, --num-samples <u32>               How many samples per frame will be computed.
-        \\-b, --num-bounces <u32>               How many times can a ray bounce before being terminated.
-        \\-x, --resolution-x <u32>              Horizontal resolution (default is 1920)
-        \\-y, --resolution-y <u32>              Vertical resolution (default is 1080)
-        \\-d, --render-resolution-divider <u32> Resolution divider (default is 1)
-        \\-v, --enable-validation               Enable vulkan validation layers
-        \\
-    );
-
-    var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-        .allocator = gpa.allocator(),
-    }) catch |err| switch (err) {
-        error.InvalidArgument => {
-            diag.report(std.io.getStdErr().writer(), err) catch {};
-            return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-        },
-        else => {
-            diag.report(std.io.getStdErr().writer(), err) catch {};
-            return err;
-        },
+    const args = command.parse(allocator) catch |err| switch (err) {
+        error.Help => std.process.exit(0),
+        error.Parser => std.process.exit(2),
+        error.OutOfMemory => return err,
     };
-    defer res.deinit();
+    defer command.parseFree(args);
 
-    if (res.args.help != 0) return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-
-    const scene_path = res.args.@"scene-path" orelse {
-        try std.io.getStdErr().writer().print("Missing path to scene from arguments\n", .{});
-
-        return clap.help(std.io.getStdErr().writer(), clap.Help, &params, .{});
-    };
-
-    const num_samples = res.args.@"num-samples" orelse 1;
-    const num_bounces = res.args.@"num-bounces" orelse 2;
+    if (args.named.@"scene-path".len == 0) {
+        _ = try std.fs.File.stderr().write("Missing path to scene from arguments\n");
+        return;
+    }
 
     var extent = vk.Extent2D{
-        .width = res.args.@"resolution-x" orelse 1920,
-        .height = res.args.@"resolution-y" orelse 1080,
+        .width = args.named.@"resolution-x",
+        .height = args.named.@"resolution-y",
     };
-
-    const render_resolution_divider = res.args.@"render-resolution-divider" orelse 1;
 
     try zw.init(allocator);
     defer zw.deinit();
@@ -110,7 +121,7 @@ pub fn main() !void {
                 RaytracingPass.extensions ++
                 [_][*:0]const u8{vk.extensions.ext_memory_budget.name}),
             features.base,
-            (res.args.@"enable-validation" != 0) or (builtin.mode == .Debug),
+            args.named.@"enable-validation" or (builtin.mode == .Debug),
         );
     };
     defer gc.deinit();
@@ -188,10 +199,10 @@ pub fn main() !void {
         swapchain.surface_format.format,
         pool,
         allocator,
-        scene_path,
-        num_samples,
-        num_bounces,
-        render_resolution_divider,
+        args.named.@"scene-path",
+        args.named.@"num-samples",
+        args.named.@"num-bounces",
+        args.named.@"render-resolution-divider",
     );
     defer raytracing_pass.deinit(&gc);
 
@@ -361,7 +372,7 @@ pub fn main() !void {
         }
     }
 
-    try swapchain.waitForAllFences(&gc);
+    try gc.device.deviceWaitIdle();
 }
 
 fn createFramebuffers(

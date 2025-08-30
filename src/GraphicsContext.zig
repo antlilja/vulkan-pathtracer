@@ -11,12 +11,8 @@ const apis = [_]vk.ApiInfo{
     vk.extensions.khr_swapchain,
 } ++ @import("root").vk_extra_apis;
 
-const BaseDispatch = vk.BaseWrapper(&apis);
-const InstanceDispatch = vk.InstanceWrapper(&apis);
-const DeviceDispatch = vk.DeviceWrapper(&apis);
-
-const Instance = vk.InstanceProxy(&apis);
-const Device = vk.DeviceProxy(&apis);
+const Instance = vk.InstanceProxy;
+const Device = vk.DeviceProxy;
 
 pub const Queue = struct {
     handle: vk.Queue,
@@ -36,7 +32,7 @@ allocator: std.mem.Allocator,
 
 vulkan_handle: std.DynLib,
 
-vkb: BaseDispatch,
+vkb: vk.BaseWrapper,
 
 instance: Instance,
 surface: vk.SurfaceKHR,
@@ -80,7 +76,7 @@ pub fn init(
         "vkGetInstanceProcAddr",
     ) orelse return error.FailedToLoadVulkan;
 
-    self.vkb = try BaseDispatch.load(get_instance_proc_addr_fn);
+    self.vkb = vk.BaseWrapper.load(get_instance_proc_addr_fn);
 
     const app_name_z = try arena_allocator.dupeZ(u8, name);
 
@@ -129,9 +125,9 @@ pub fn init(
         .pp_enabled_layer_names = &validation_layers,
     }, null);
 
-    const vki = try allocator.create(InstanceDispatch);
+    const vki = try allocator.create(vk.InstanceWrapper);
     errdefer allocator.destroy(vki);
-    vki.* = try InstanceDispatch.load(instance, self.vkb.dispatch.vkGetInstanceProcAddr);
+    vki.* = vk.InstanceWrapper.load(instance, self.vkb.dispatch.vkGetInstanceProcAddr.?);
     self.instance = Instance.init(instance, vki);
     errdefer self.instance.destroyInstance(null);
 
@@ -246,7 +242,7 @@ pub fn init(
                     device,
                     family,
                     self.surface,
-                )) == vk.TRUE) {
+                )) == .true) {
                     present_family = family;
                 }
             }
@@ -296,9 +292,9 @@ pub fn init(
         }, null);
     };
 
-    const vkd = try allocator.create(DeviceDispatch);
+    const vkd = try allocator.create(vk.DeviceWrapper);
     errdefer allocator.destroy(vkd);
-    vkd.* = try DeviceDispatch.load(device, self.instance.wrapper.dispatch.vkGetDeviceProcAddr);
+    vkd.* = vk.DeviceWrapper.load(device, self.instance.wrapper.dispatch.vkGetDeviceProcAddr.?);
     self.device = Device.init(device, vkd);
     errdefer self.device.destroyDevice(null);
 

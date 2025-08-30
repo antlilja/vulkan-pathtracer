@@ -6,66 +6,66 @@ pub fn build(b: *std.Build) !void {
 
     const spec_path = b.dependency("vulkan_headers", .{}).path("registry/vk.xml");
 
-    const vk_gen = b.dependency("vulkan_zig", .{}).artifact("vulkan-zig-generator");
-    const vk_generate_cmd = b.addRunArtifact(vk_gen);
-    vk_generate_cmd.addFileArg(spec_path);
+    const vulkan_mod = blk: {
+        const vk_gen = b.dependency("vulkan", .{}).artifact("vulkan-zig-generator");
+        const vk_generate_cmd = b.addRunArtifact(vk_gen);
+        vk_generate_cmd.addFileArg(spec_path);
 
-    const zw_dep = b.dependency("zig_window", .{
-        .target = target,
-        .optimize = optimize,
-    });
+        break :blk b.createModule(.{ .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig") });
+    };
 
-    const clap_dep = b.dependency("clap", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const zi_dep = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const nuklear_mod = compileCHeaderOnlyLib(
-        b,
-        target,
-        optimize,
-        b.dependency("nuklear", .{}),
-        "nuklear",
-        "nuklear.h",
-        &.{
-            "NK_INCLUDE_FIXED_TYPES",
-            "NK_INCLUDE_DEFAULT_FONT",
-            "NK_INCLUDE_FONT_BAKING",
-            "NK_INCLUDE_VERTEX_BUFFER_OUTPUT",
-        },
-        &.{
-            "-DNK_IMPLEMENTATION",
-        },
-    );
+    const nuklear_mod = blk: {
+        const translate_c = b.addTranslateC(.{
+            .root_source_file = b.dependency("nuklear", .{}).path("nuklear.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        translate_c.defineCMacroRaw("NK_INCLUDE_FIXED_TYPES=1");
+        translate_c.defineCMacroRaw("NK_INCLUDE_DEFAULT_FONT=1");
+        translate_c.defineCMacroRaw("NK_INCLUDE_FONT_BAKING=1");
+        translate_c.defineCMacroRaw("NK_INCLUDE_VERTEX_BUFFER_OUTPUT=");
+        break :blk translate_c.createModule();
+    };
 
     const exe = b.addExecutable(.{
         .name = "vulkan-pathtracer",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "vulkan", .module = vulkan_mod },
+                .{ .name = "zig-window", .module = b.dependency("zig_window", .{}).module("zig-window") },
+                .{ .name = "structopt", .module = b.dependency("structopt", .{}).module("structopt") },
+                .{ .name = "zgltf", .module = b.dependency("zgltf", .{}).module("zgltf") },
+                .{ .name = "zalgebra", .module = b.dependency("zalgebra", .{}).module("zalgebra") },
+                .{ .name = "nuklear", .module = nuklear_mod },
+            },
+        }),
     });
-    exe.root_module.addAnonymousImport("vulkan", .{
-        .root_source_file = vk_generate_cmd.addOutputFileArg("vk.zig"),
-    });
-    exe.root_module.addImport("zig-window", zw_dep.module("zig-window"));
-    exe.root_module.addImport("clap", clap_dep.module("clap"));
-    exe.root_module.addImport("zigimg", zi_dep.module("zigimg"));
-    exe.root_module.addImport("zgltf", b.dependency("zgltf", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("zgltf"));
-    exe.root_module.addImport("zalgebra", b.dependency("zalgebra", .{
-        .target = target,
-        .optimize = optimize,
-    }).module("zalgebra"));
-    exe.root_module.addImport("nuklear", nuklear_mod);
     b.installArtifact(exe);
+    exe.addCSourceFile(.{
+        .language = .c,
+        .file = b.dependency("nuklear", .{}).path("nuklear.h"),
+        .flags = &.{
+            "-DNK_IMPLEMENTATION=1",
+            "-DNK_INCLUDE_FIXED_TYPES=1",
+            "-DNK_INCLUDE_DEFAULT_FONT=1",
+            "-DNK_INCLUDE_FONT_BAKING=1",
+            "-DNK_INCLUDE_VERTEX_BUFFER_OUTPUT=",
+        },
+    });
+    {
+        exe.addCSourceFile(.{
+            .language = .c,
+            .file = b.dependency("stb", .{}).path("stb_image.h"),
+            .flags = &.{
+                "-DSTB_IMAGE_IMPLEMENTATION=1",
+                "-DSTBI_NO_STDIO=1",
+            },
+        });
+    }
 
     const shader_compiler = b.dependency("shader_compiler", .{
         .target = std.Build.resolveTargetQuery(b, .{
@@ -144,16 +144,16 @@ fn compileShader(
     });
 }
 
-fn compileCHeaderOnlyLib(
+fn addCHeaderOnlyLib(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     dependency: *std.Build.Dependency,
     lib_name: []const u8,
     header_file_path: []const u8,
-    common_defines: []const []const u8,
+    common_macros: []const []const u8,
     impl_flags: []const []const u8,
-) *std.Build.Module {
+) void {
     const header_path = dependency.path(header_file_path);
 
     const translate_c = b.addTranslateC(.{
@@ -162,8 +162,8 @@ fn compileCHeaderOnlyLib(
         .optimize = optimize,
         .link_libc = true,
     });
-    for (common_defines) |define| {
-        translate_c.defineCMacro(define, null);
+    for (common_macros) |macro| {
+        translate_c.defineCMacroRaw(macro);
     }
 
     const c_file_path = b.allocator.alloc(u8, header_file_path.len) catch unreachable;
@@ -172,20 +172,23 @@ fn compileCHeaderOnlyLib(
     const wf = b.addWriteFiles();
     const c_file = wf.addCopyFile(dependency.path(header_file_path), c_file_path);
 
-    const flags = b.allocator.alloc([]const u8, common_defines.len + impl_flags.len) catch unreachable;
-    for (common_defines, flags[0..common_defines.len]) |define, *flag| {
+    const flags = b.allocator.alloc([]const u8, common_macros.len + impl_flags.len) catch unreachable;
+    for (common_macros, flags[0..common_macros.len]) |define, *flag| {
         flag.* = std.mem.concat(b.allocator, u8, &.{ "-D", define }) catch unreachable;
     }
 
-    for (impl_flags, flags[common_defines.len..]) |impl_flag, *flag| {
+    for (impl_flags, flags[common_macros.len..]) |impl_flag, *flag| {
         flag.* = impl_flag;
     }
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .static,
         .name = lib_name,
-        .optimize = optimize,
-        .target = target,
-        .link_libc = true,
+        .root_module = b.createModule(.{
+            .optimize = optimize,
+            .target = target,
+            .link_libc = true,
+        }),
     });
     lib.addCSourceFile(.{
         .file = c_file,
