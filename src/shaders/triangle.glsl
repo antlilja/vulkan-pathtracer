@@ -76,13 +76,14 @@ TriangleData getTriangleData(Payload payload) {
         triangle_data.uv = vec2(uv0 * coords.x + uv1 * coords.y + uv2 * coords.z);
     }
 
+    const mat3 normal_world_matrix = transpose(inverse(mat3(payload.object_to_world)));
     {
         Normals normals = Normals(primitive.normal_address);
         const vec3 n0 = normals.v[index.x].xyz;
         const vec3 n1 = normals.v[index.y].xyz;
         const vec3 n2 = normals.v[index.z].xyz;
         const vec3 normal = n0 * coords.x + n1 * coords.y + n2 * coords.z;
-        triangle_data.normal = normalize(normal * mat3(payload.object_to_world));
+        triangle_data.normal = normalize(normal * normal_world_matrix);
     }
 
     {
@@ -91,7 +92,7 @@ TriangleData getTriangleData(Payload payload) {
         const vec4 t1 = tangents.v[index.y];
         const vec4 t2 = tangents.v[index.z];
         const vec4 tangent = t0 * coords.x + t1 * coords.y + t2 * coords.z;
-        triangle_data.tangent.xyz = normalize(tangent.xyz * mat3(payload.object_to_world));
+        triangle_data.tangent.xyz = normalize(tangent.xyz * normal_world_matrix);
         triangle_data.tangent.w = tangent.w;
     }
 
@@ -101,7 +102,7 @@ TriangleData getTriangleData(Payload payload) {
                 cross(
                     positions.v[index.y] - positions.v[index.x],
                     positions.v[index.z] - positions.v[index.x]
-                ) * mat3(payload.object_to_world)
+                ) * normal_world_matrix
             );
     }
 
