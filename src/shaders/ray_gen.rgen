@@ -12,6 +12,7 @@
 #include "common.glsl"
 #include "triangle.glsl"
 #include "material.glsl"
+#include "brdf.glsl"
 
 layout(constant_id = 0) const uint NUM_SAMPLES = 1;
 layout(constant_id = 1) const uint NUM_BOUNCES = 2;
@@ -29,19 +30,6 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) rayPayloadEXT Payload payload;
 
-mat3 normalMatrix(vec3 normal) {
-    vec3 orthogonal;
-    if (abs(normal.x) > 0.99) {
-        orthogonal = vec3(0, 0, 1);
-    } else {
-        orthogonal = vec3(1, 0, 0);
-    }
-
-    const vec3 tangent = normalize(cross(normal, orthogonal));
-    const vec3 bitangent = normalize(cross(normal, tangent));
-    return mat3(tangent, bitangent, normal);
-}
-
 void main() {
     const vec2 pixel = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
     const vec2 uv = pixel / vec2(gl_LaunchSizeEXT.xy);
@@ -50,7 +38,7 @@ void main() {
     const float tmin = 0.001f;
     const float tmax = 10000.0f;
 
-    uint rng_state = tea(gl_LaunchIDEXT.x * pcs.frame_count, gl_LaunchIDEXT.y * pcs.frame_count);
+    uvec2 seed = prng_seed(gl_LaunchIDEXT.xy, pcs.frame_count);
 
     vec3 final_color = vec3(0.0);
     for (int i = 0; i < NUM_SAMPLES; ++i) {
@@ -85,14 +73,26 @@ void main() {
                 const MaterialData material_data = getMaterialData(triangle_data);
 
                 color += material_data.emissive * 10.0 * atten;
-                atten *= material_data.albedo.xyz * 0.5;
 
                 if (j < NUM_BOUNCES - 1) {
-                    origin += direction * payload.t + (triangle_data.geometry_normal) * 0.00001f;
+                    ShadingInfo s;
+                    s.out_dir = -direction;
+                    s.normal = material_data.normal;
+                    s.lambert_out = dot(s.normal, s.out_dir);
+                    s.fresnel_0 = mix(vec3(0.02), material_data.albedo.xyz, material_data.metallic);
+                    s.diffuse_albedo = material_data.albedo.xyz - material_data.metallic * material_data.albedo.xyz;
+                    s.roughness = max(0.006, material_data.roughness);
 
-                    const vec3 diffuse = cosine_weighted_sample(rng_state, normalMatrix(material_data.normal));
-                    const vec3 reflection = reflect(direction, material_data.normal);
-                    direction = normalize(mix(reflection, diffuse, material_data.roughness));
+                    origin = origin + payload.t * direction + (triangle_data.geometry_normal) * 0.00001f;
+                    direction = sample_brdf(s, pcg2d(seed));
+
+                    float density = get_brdf_density(s, direction);
+                    float lambert_in = dot(s.normal, direction);
+                    if (lambert_in <= 0.0) {
+                        break;
+                    }
+
+                    atten *= brdf(s, direction) * lambert_in / density;
                 }
             }
         }
@@ -101,10 +101,5 @@ void main() {
 
     final_color /= NUM_SAMPLES;
 
-    final_color = vec3(
-            sqrt(final_color.r),
-            sqrt(final_color.g),
-            sqrt(final_color.b)
-        );
     imageStore(image, ivec2(gl_LaunchIDEXT.xy), vec4(final_color, 1.0f));
 }
