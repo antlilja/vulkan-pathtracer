@@ -16,20 +16,20 @@ last_cursor_y: i32 = 0,
 cursor_delta_x: i32 = 0,
 cursor_delta_y: i32 = 0,
 
-keys: [@intFromEnum(Key.max)]bool = [_]bool{false} ** @intFromEnum(Key.max),
-last_keys: [@intFromEnum(Key.max)]bool = [_]bool{false} ** @intFromEnum(Key.max),
-mouse_buttons: [@intFromEnum(Mouse.max)]bool = [_]bool{false} ** @intFromEnum(Mouse.max),
-last_mouse_buttons: [@intFromEnum(Mouse.max)]bool = [_]bool{false} ** @intFromEnum(Mouse.max),
+keys: std.EnumArray(Key, bool) = .initFill(false),
+last_keys: std.EnumArray(Key, bool) = .initFill(false),
+mouse_buttons: std.EnumArray(Mouse, bool) = .initFill(false),
+last_mouse_buttons: std.EnumArray(Mouse, bool) = .initFill(false),
 
 scroll: i32 = 0,
 next_scroll: i32 = 0,
 
 pub fn handleEvent(self: *Self, event: zw.Event) void {
     switch (event) {
-        .KeyPress => |key| self.keys[@intFromEnum(key)] = true,
-        .KeyRelease => |key| self.keys[@intFromEnum(key)] = false,
-        .MousePress => |button| self.mouse_buttons[@intFromEnum(button)] = true,
-        .MouseRelease => |button| self.mouse_buttons[@intFromEnum(button)] = false,
+        .KeyPress => |key| self.keys.set(key, true),
+        .KeyRelease => |key| self.keys.set(key, false),
+        .MousePress => |button| self.mouse_buttons.set(button, true),
+        .MouseRelease => |button| self.mouse_buttons.set(button, false),
         .MouseMove => |point| {
             self.cursor_x, self.cursor_y = point;
         },
@@ -48,30 +48,30 @@ pub fn reset(self: *Self) void {
     self.scroll = self.next_scroll;
     self.next_scroll = 0;
 
-    std.mem.copyForwards(bool, &self.last_keys, &self.keys);
-    std.mem.copyForwards(bool, &self.last_mouse_buttons, &self.mouse_buttons);
+    std.mem.copyForwards(bool, &self.last_keys.values, &self.keys.values);
+    std.mem.copyForwards(bool, &self.last_mouse_buttons.values, &self.mouse_buttons.values);
 }
 
 pub fn isKeyPressed(self: *const Self, key: Key) bool {
-    return self.keys[@intFromEnum(key)];
+    return self.keys.get(key);
 }
 
 pub fn isKeyReleased(self: *const Self, key: Key) bool {
-    return !self.keys[@intFromEnum(key)] and self.last_keys[@intFromEnum(key)];
+    return !self.keys.get(key) and self.last_keys.get(key);
 }
 
 pub fn isKeyJustPressed(self: *const Self, key: Key) bool {
-    return self.keys[@intFromEnum(key)] and !self.last_keys[@intFromEnum(key)];
+    return self.keys.get(key) and !self.last_keys.get(key);
 }
 
 pub fn isMouseButtonPressed(self: *const Self, button: Mouse) bool {
-    return self.mouse_buttons[@intFromEnum(button)];
+    return self.mouse_buttons.get(button);
 }
 
 pub fn isMouseButtonReleased(self: *const Self, button: Mouse) bool {
-    return !self.mouse_buttons[@intFromEnum(button)] and self.last_mouse_buttons[@intFromEnum(button)];
+    return !self.mouse_buttons.get(button) and self.last_mouse_buttons.get(button);
 }
 
 pub fn isMouseButtonJustPressed(self: *const Self, button: Mouse) bool {
-    return self.mouse_buttons[@intFromEnum(button)] and !self.last_mouse_buttons[@intFromEnum(button)];
+    return self.mouse_buttons.get(button) and !self.last_mouse_buttons.get(button);
 }

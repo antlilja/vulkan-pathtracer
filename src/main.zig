@@ -88,12 +88,12 @@ pub fn main() !void {
         .height = args.named.@"resolution-y",
     };
 
-    try zw.init(allocator);
-    defer zw.deinit();
+    const zw_context = try zw.init(allocator, .{ .max_window_count = 1 });
+    defer zw_context.deinit(allocator);
 
     var input: Input = .{};
 
-    const window = try zw.createWindow(.{
+    const window = try zw_context.createWindow(.{
         .name = app_name,
         .width = extent.width,
         .height = extent.height,
@@ -116,7 +116,7 @@ pub fn main() !void {
             "vulkan-pathtracer",
             window,
             vk.API_VERSION_1_3,
-            zw.requiredVulkanInstanceExtensions(),
+            zw_context.requiredVulkanInstanceExtensions(),
             &(NuklearPass.extensions ++
                 RaytracingPass.extensions ++
                 [_][*:0]const u8{vk.extensions.ext_memory_budget.name}),
@@ -235,7 +235,7 @@ pub fn main() !void {
             stats.lap(timer);
 
             input.reset();
-            zw.pollEvents();
+            zw_context.pollEvents();
         }
 
         // Camera movement

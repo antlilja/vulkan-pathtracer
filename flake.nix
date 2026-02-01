@@ -39,6 +39,7 @@
             xorg.libxcb
             glsl_analyzer
             gdbgui
+            wayland
           ];
 
           hardeningDisable = [ "all" ];
@@ -46,6 +47,7 @@
           LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [
             pkgs.vulkan-loader
             pkgs.xorg.libxcb
+            pkgs.wayland
           ]}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
         };

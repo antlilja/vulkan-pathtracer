@@ -11,8 +11,8 @@
             .hash = "1220afc8e6bb47f2b8a1eebed3a696e1e7d65f16c80b01f226e3a0c6c78f00a28ef3",
         },
         .zig_window = .{
-            .url = "git+https://github.com/antlilja/zig-window.git#a9d7563e39671abfa686e78846cf67992dda9485",
-            .hash = "zig_window-0.0.0-Iy-jHpLcAABSgOfJr7hYQx0IsKEXNsa-JuWqw_lMZIuR",
+            .url = "git+https://github.com/antlilja/zig-window.git#ccf83de3748b4ba89a1bb2645b6de3441a50b022",
+            .hash = "zig_window-0.0.0-Iy-jHo-LAgCvaDD33C3OFuSv7KbbBnMFEYl7IEj4rkzt",
         },
         .stb = .{
             .url = "https://github.com/nothings/stb/archive/f58f558c120e9b32c217290b80bad1a0729fbb2c.tar.gz",
