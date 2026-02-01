@@ -370,29 +370,72 @@ fn loadTextures(
 
     const textures = try arena_allocator.alloc(Texture, gltf_data.textures.len);
 
-    for (gltf_data.textures, textures) |gltf_texture, *texture| {
+    var arena_mutex = std.Thread.Mutex{};
+    var tmp_arena_mutex = std.Thread.Mutex{};
+
+    const thread_count = @min(textures.len, try std.Thread.getCpuCount());
+    const textures_per_thread = textures.len / thread_count;
+    const threads = try tmp_arena.allocator().alloc(std.Thread, thread_count);
+    for (threads, 0..) |*thread, i| {
+        thread.* = try .spawn(.{}, loadTexture, .{
+            gltf_data,
+            gltf_buffers,
+            dir,
+            textures,
+            i * textures_per_thread,
+            if (i == (threads.len - 1)) textures.len else (i + 1) * textures_per_thread,
+            &arena_mutex,
+            arena_allocator,
+            &tmp_arena_mutex,
+            tmp_arena.allocator(),
+        });
+    }
+
+    for (threads) |*thread| thread.join();
+
+    self.textures = textures;
+}
+
+fn loadTexture(
+    gltf_data: Gltf,
+    gltf_buffers: []const Buffer,
+    dir: std.fs.Dir,
+    textures: []Texture,
+    textures_start: usize,
+    textures_end: usize,
+    arena_mutex: *std.Thread.Mutex,
+    arena: std.mem.Allocator,
+    tmp_arena_mutex: *std.Thread.Mutex,
+    tmp_arena: std.mem.Allocator,
+) !void {
+    for (gltf_data.textures[textures_start..textures_end], textures[textures_start..textures_end]) |gltf_texture, *texture| {
         const image = gltf_data.images[gltf_texture.source.get()];
         const image_data = if (image.uri.len != 0) blk: {
             var file = try dir.openFile(image.uri, .{});
             defer file.close();
 
-            const image_data = try file.readToEndAlloc(tmp_arena.allocator(), std.math.maxInt(usize));
+            tmp_arena_mutex.lock();
+            const image_data = try file.readToEndAlloc(tmp_arena, std.math.maxInt(usize));
+            tmp_arena_mutex.unlock();
             break :blk try stb_image.load_from_memory_rgba(image_data);
         } else blk: {
             const buffer_view = gltf_data.buffer_views[image.buffer_view.get()];
             const buffer = gltf_buffers[buffer_view.buffer.get()];
 
-            const image_data = try tmp_arena.allocator().alloc(u8, buffer_view.byte_length);
+            tmp_arena_mutex.lock();
+            const image_data = try tmp_arena.alloc(u8, buffer_view.byte_length);
+            tmp_arena_mutex.unlock();
 
-            try buffer.file.seekTo(buffer.offset + buffer_view.byte_offset);
-            const read_size = try buffer.file.read(image_data);
+            const read_size = try buffer.file.pread(image_data, buffer.offset + buffer_view.byte_offset);
             if (read_size != buffer_view.byte_length) return error.EndOfLength;
 
             break :blk try stb_image.load_from_memory_rgba(image_data);
         };
         defer std.c.free(@ptrCast(@constCast(image_data.image.ptr)));
 
-        const data = try arena_allocator.dupe(u8, image_data.image);
+        arena_mutex.lock();
+        const data = try arena.dupe(u8, image_data.image);
+        arena_mutex.unlock();
 
         texture.* = .{
             .data = data,
@@ -400,8 +443,6 @@ fn loadTextures(
             .height = image_data.height,
         };
     }
-
-    self.textures = textures;
 }
 
 fn loadMaterials(
